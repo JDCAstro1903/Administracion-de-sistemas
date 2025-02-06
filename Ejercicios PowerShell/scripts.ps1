@@ -170,4 +170,16 @@ $env:PSModulePath
 #automatizacion del backup
     Register-ScheduledTask 
 
-    
+    #configuracion de la tarea
+    $Time = New-ScheduledTaskTrigger -At 02:00 -Daily
+
+    #accion de la tarea 
+    $PS = New-ScheduledTaskAction -Execute "Powershell.exe" -Argument "-Command '"Import-Module BackupRegistry -Force; Backup-Registry -rutaBackup 'D:\tmp\Backups\registro\'""
+
+    #Crear la tarea programada
+    Register-ScheduledTask -TaskName "Ejecutar el Backup del registro del sistema" -Trigger $Time -Action $PS
+
+#Eliminar una tarea programada
+    Unregister ScheduledTask
+
+    Unregister-ScheduledTask ‘Ejecutar Backup del Registro del Sistema’ 
