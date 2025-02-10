@@ -1,0 +1,7 @@
+DNS en linux
+
+sudo apt install bind9 bind9utils bind9-doc
+
+systemctl status bind9
+
+sudo nano /etc/bind/named.conf.local
