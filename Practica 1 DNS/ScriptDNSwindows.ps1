@@ -1,30 +1,33 @@
-# 1. Instalar el servicio DNS
-Install-WindowsFeature -Name DNS -IncludeManagementTools
+#Instalar servicio DNS
+Write-Host "Instalando el servicio DNS..." -ForegroundColor Cyan
+Install-WindowsFeature -Name DNS
 
-# 2. Configurar la IP estática y el DNS en la interfaz "Ethernet"
-New-NetIPAddress -InterfaceAlias "Ethernet" -IPAddress 10.0.0.20 -PrefixLength 24 -DefaultGateway 10.0.0.1
-Set-DnsClientServerAddress -InterfaceAlias "Ethernet" -ServerAddresses 127.0.0.1
+#Configurar la IP estatica y el DNS en la interfaz
+Write-Host "Configurando la IP en la interfaz " -ForegroundColor Cyan
+New-NetIPAddress -InterfaceAlias "Ethernet 2" -IPAddress 10.0.0.20 -PrefixLength 24
 
-# 3. Crear la zona primaria para el dominio "reprobados.com"
-Add-DnsServerPrimaryZone -Name "reprobados.com" -ZoneType Primary -DynamicUpdate Secure
+#Crear la zona primaria
+Write-Host "Creando la zona primaria para el dominio " -Foreground Cyan
+Add-DnsServerPrimaryZone -Name "reprobados.com" -ZoneFile "reprobados.com.dns" -DynamicUpdate None
 
-# 4. Crear la zona inversa (para la red 10.0.0.x)
-Add-DnsServerPrimaryZone -NetworkID "10.0.0" -ZoneFile "0.0.10.in-addr.arpa.dns" -DynamicUpdate Secure
-
-# 5. Agregar registros A (host) para el dominio y un subdominio
-Add-DnsServerResourceRecordA -ZoneName "reprobados.com" -Name "ns" -IPv4Address 10.0.0.20
+#Agregar dominios
+Write-Host "Agregando registros..." -Foreground Cyan
+Add-DnsServerResourceRecordA -ZoneName "reprobados.com" -Name "@" -IPv4Address 10.0.0.20
 Add-DnsServerResourceRecordA -ZoneName "reprobados.com" -Name "www" -IPv4Address 10.0.0.20
 
-# 6. Agregar un registro NS (servidor de nombres)
-Add-DnsServerResourceRecordNS -ZoneName "reprobados.com" -Name "@" -NameServer "ns.reprobados.com"
+#Firewall
+Write-Host "Configurando firewall..." -Foreground Cyan
+New-NetFirewallRule -DisplayName "Allow ICMPv4" -Protocol ICMPv4 -Direction Inbound -Action Allow
 
-# 7. Agregar registros PTR en la zona inversa
-Add-DnsServerResourceRecordPTR -ZoneName "0.0.10.in-addr.arpa" -Name "20" -PtrDomainName "ns.reprobados.com"
-Add-DnsServerResourceRecordPTR -ZoneName "0.0.10.in-addr.arpa" -Name "20" -PtrDomainName "www.reprobados.com"
+#direccion del DNS
+Write-Host "Configurando DNS" -Foreground Cyan
+Set-DnsClientServerAddress -InterfaceAlias "Ethernet 2" -ServerAddress 10.0.0.20
 
-# 8. Reiniciar el servicio DNS
+#Reiniciar el servicio
+Write-Host "Reiniciando servicio DNS..." -Foreground Cyan
 Restart-Service -Name DNS
 
-# 9. Verificar la configuración
+#Verificar la configuración
+Write-Host "Verificando la configuración..." -Foreground Cyan
 nslookup www.reprobados.com 127.0.0.1
-nslookup 10.0.0.20 127.0.0.1
+nslookup reprobados.com 127.0.0.1
