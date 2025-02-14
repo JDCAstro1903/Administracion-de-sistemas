@@ -1,5 +1,3 @@
-#!/bin/bash
-
 # Actualizar repositorios e instalar Bind9
 sudo apt update && sudo apt install -y bind9
 

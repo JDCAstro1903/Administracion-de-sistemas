@@ -1,0 +1,25 @@
+# Script en PowerShell para Windows Server
+
+echo "Creando script de configuración DHCP en Windows Server..."
+
+cat <<EOP > config_dhcp.ps1
+# Solicitar parámetros al usuario
+$Scope = Read-Host "Ingrese el rango de direcciones IP (ejemplo: 192.168.1.100-192.168.1.200)"
+$Gateway = Read-Host "Ingrese la puerta de enlace predeterminada (ejemplo: 192.168.1.1)"
+$Subnet = Read-Host "Ingrese la máscara de subred (ejemplo: 255.255.255.0)"
+$Dns = Read-Host "Ingrese el servidor DNS primario (ejemplo: 8.8.8.8)"
+
+# Instalar el rol DHCP
+Install-WindowsFeature -Name 'DHCP' -IncludeManagementTools
+
+# Crear el ámbito DHCP
+Add-DhcpServerv4Scope -Name "MiRed" -StartRange $Scope.Split('-')[0] -EndRange $Scope.Split('-')[1] -SubnetMask $Subnet -State Active
+
+# Configurar la puerta de enlace y DNS
+Set-DhcpServerv4OptionValue -ScopeId $Scope.Split('-')[0] -OptionId 3 -Value $Gateway
+Set-DhcpServerv4OptionValue -ScopeId $Scope.Split('-')[0] -OptionId 6 -Value $Dns
+
+Write-Host "Configuración completada en Windows Server." -ForegroundColor Green
+EOP
+
+Write-Host "Script de configuración DHCP en Windows Server guardado como config_dhcp.ps1"
