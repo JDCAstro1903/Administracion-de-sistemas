@@ -1,6 +1,4 @@
-# Script en PowerShell para Windows Server
-
-Write-Host "Creando script de configuración DHCP en Windows Server..." -ForegroundColor Cyan
+Write-Host "Iniciando configuración del servidor DHCP en Windows Server..." -ForegroundColor Cyan
 
 # Función para validar direcciones IP
 function Validar-IP {
@@ -36,14 +34,48 @@ do {
     $Dns = Read-Host "Ingrese el servidor DNS primario (ejemplo: 8.8.8.8)"
 } while (-not (Validar-IP $Dns))
 
-# Instalar el rol DHCP
-Install-WindowsFeature -Name 'DHCP' -IncludeManagementTools
+# Determinar la dirección de red
+function Obtener-DireccionRed {
+    param ($ip, $subnet)
+    $ipBytes = $ip -split '\.' | ForEach-Object { [int]$_ }
+    $subnetBytes = $subnet -split '\.' | ForEach-Object { [int]$_ }
+    $red = @()
+    for ($i = 0; $i -lt 4; $i++) {
+        $red += ($ipBytes[$i] -band $subnetBytes[$i])
+    }
+    return $red -join "."
+}
+
+$NetworkID = Obtener-DireccionRed -ip $rango[0] -subnet $Subnet
+Write-Host "Dirección de red calculada: $NetworkID"
+
+# Instalar el rol DHCP si no está instalado
+$DHCPFeature = Get-WindowsFeature -Name 'DHCP'
+if (-not $DHCPFeature.Installed) {
+    Write-Host "Instalando el servicio DHCP..." -ForegroundColor Yellow
+    Install-WindowsFeature -Name 'DHCP' -IncludeManagementTools
+} else {
+    Write-Host "El servicio DHCP ya está instalado." -ForegroundColor Green
+}
+
+# Iniciar y habilitar el servicio DHCP
+Write-Host "Habilitando y arrancando el servicio DHCP..." -ForegroundColor Yellow
+Set-Service -Name 'DHCPServer' -StartupType Automatic
+Start-Service 'DHCPServer'
+
+# Agregar la autorización DHCP (solo si está en un dominio)
+#if ((Get-WmiObject Win32_ComputerSystem).PartOfDomain) {
+#    Write-Host "Autorizando el servidor DHCP en el dominio..." -ForegroundColor Yellow
+#    Add-DhcpServerInDC
+#}
 
 # Crear el ámbito DHCP
+Write-Host "Creando el ámbito DHCP..." -ForegroundColor Yellow
 Add-DhcpServerv4Scope -Name "MiRed" -StartRange $rango[0] -EndRange $rango[1] -SubnetMask $Subnet -State Active
 
-# Configurar la puerta de enlace y DNS
-Set-DhcpServerv4OptionValue -ScopeId $rango[0] -OptionId 3 -Value $Gateway
-Set-DhcpServerv4OptionValue -ScopeId $rango[0] -OptionId 6 -Value $Dns
+# Configurar opciones de DHCP
+Write-Host "Configurando opciones DHCP..." -ForegroundColor Yellow
+Set-DhcpServerv4OptionValue -ScopeId $NetworkID -OptionId 3 -Value $Gateway
+Set-DhcpServerv4OptionValue -ScopeId $NetworkID -OptionId 6 -Value $Dns
 
-Write-Host "Configuración completada en Windows Server." -ForegroundColor Green
+Write-Host "Configuración completada con éxito en Windows Server." -ForegroundColor Green

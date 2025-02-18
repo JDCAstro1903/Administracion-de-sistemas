@@ -1,10 +1,10 @@
 #!/bin/bash
 
 # Verificar si se ejecuta como root
-if [ "$(id -u)" -ne 0 ]; then
-    echo "Este script debe ejecutarse como root o con sudo." >&2
-    exit 1
-fi
+#if [ "$(id -u)" -ne 0 ]; then
+#   echo "Este script debe ejecutarse como root o con sudo." >&2
+#  exit 1
+#fi
 
 # Función para validar direcciones IP
 validar_ip() {
