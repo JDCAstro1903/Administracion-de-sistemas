@@ -13,69 +13,57 @@ function Validar-Subnet {
     return $subnetsValidas -contains $subnet
 }
 
-# Solicitar y validar el rango de IPs
+#Solicitar direccion IP
+do{
+        $IpEstatica = Read-Host "Ingresa una direccion IP estatica (Ej: 192.168.1.10): "
+} while (-not (Validar-IP $IpEstatica))
+
+# Solicitar dirección IP
 do {
-    $Scope = Read-Host "Ingrese el rango de direcciones IP (ejemplo: 192.168.1.100-192.168.1.200)"
+    $IpEstatica = Read-Host "Ingresa una dirección IP Estática (Ej 10.0.0.10)"
+} while (-not (Validar-IP $IpEstatica))
+
+# Solicitar rango de direcciones IP
+do {
+    $Scope = Read-Host "Ingrese el rango de direcciones IP (Ejemplo: 192.168.1.100 - 192.168.1.200)" -ForeGroundColor Cyan
     $rango = $Scope -split '-'
 } while ($rango.Count -ne 2 -or -not (Validar-IP $rango[0]) -or -not (Validar-IP $rango[1]))
 
-# Solicitar y validar la puerta de enlace
+# Solicitar Gateway
 do {
-    $Gateway = Read-Host "Ingrese la puerta de enlace predeterminada (ejemplo: 192.168.1.1)"
+    $Gateway = Read-Host "Ingrese la puerta de enlace predeterminada (Ejemplo: 192.168.1.1)" -ForeGroundColor Cyan
 } while (-not (Validar-IP $Gateway))
 
-# Solicitar y validar la máscara de subred
+# Solicitar máscara de subred
 do {
-    $Subnet = Read-Host "Ingrese la máscara de subred (ejemplo: 255.255.255.0)"
+    $Subnet = Read-Host "Ingrese la máscara de la subred (Ejemplo: 255.255.255.0)" -ForeGroundColor Cyan
 } while (-not (Validar-Subnet $Subnet))
 
-# Solicitar y validar el servidor DNS
+# Solicitar DNS
 do {
-    $Dns = Read-Host "Ingrese el servidor DNS primario (ejemplo: 8.8.8.8)"
-} while (-not (Validar-IP $Dns))
+    $DNS = Read-Host "Ingrese el servidor DNS (Ejemplo: 8.8.8.8)" -ForeGroundColor Cyan
+} while (-not (Validar-IP $DNS))
 
-# Determinar la dirección de red
-function Obtener-DireccionRed {
-    param ($ip, $subnet)
-    $ipBytes = $ip -split '\.' | ForEach-Object { [int]$_ }
-    $subnetBytes = $subnet -split '\.' | ForEach-Object { [int]$_ }
-    $red = @()
-    for ($i = 0; $i -lt 4; $i++) {
-        $red += ($ipBytes[$i] -band $subnetBytes[$i])
-    }
-    return $red -join "."
-}
+# Interfaz de red
+$int = "Ethernet 2"
 
-$NetworkID = Obtener-DireccionRed -ip $rango[0] -subnet $Subnet
-Write-Host "Dirección de red calculada: $NetworkID"
+# Asignar IP al servidor
+New-NetIPAddress -IpAddress $IpEstatica -PrefixLength 24 -DefaultGateway $Gateway -InterfaceAlias $int
 
-# Instalar el rol DHCP si no está instalado
-$DHCPFeature = Get-WindowsFeature -Name 'DHCP'
-if (-not $DHCPFeature.Installed) {
-    Write-Host "Instalando el servicio DHCP..." -ForegroundColor Yellow
-    Install-WindowsFeature -Name 'DHCP' -IncludeManagementTools
-} else {
-    Write-Host "El servicio DHCP ya está instalado." -ForegroundColor Green
-}
+# Instalar DHCP
+Write-Host "Instalando el servicio DHCP" -ForeGroundColor Cyan
+Install-WindowsFeature -Name 'DHCP' -IncludeManagementTools
+Restart-Service DHCPServer
 
-# Iniciar y habilitar el servicio DHCP
-Write-Host "Habilitando y arrancando el servicio DHCP..." -ForegroundColor Yellow
-Set-Service -Name 'DHCPServer' -StartupType Automatic
-Start-Service 'DHCPServer'
+# Configurar DHCP
+Write-Host "Configurando DHCP" -ForeGroundColor Cyan
+Add-DhcpServerV4Scope -Name "MiRed" -StartRange $rango[0] -EndRange $rango[1] -SubnetMask $Subnet -State Active
+Start-Service DHCPServer
 
-# Agregar la autorización DHCP (solo si está en un dominio)
-#if ((Get-WmiObject Win32_ComputerSystem).PartOfDomain) {
-#    Write-Host "Autorizando el servidor DHCP en el dominio..." -ForegroundColor Yellow
-#    Add-DhcpServerInDC
-#}
+# Configurar gateway y DNS
+Set-DhcpServerV4OptionValue -ScopeId $rango[0] -OptionId 3 -Value $Gateway
+Set-DhcpServerV4OptionValue -ScopeId $rango[0] -OptionId 6 -Value $DNS
 
-# Crear el ámbito DHCP
-Write-Host "Creando el ámbito DHCP..." -ForegroundColor Yellow
-Add-DhcpServerv4Scope -Name "MiRed" -StartRange $rango[0] -EndRange $rango[1] -SubnetMask $Subnet -State Active
-
-# Configurar opciones de DHCP
-Write-Host "Configurando opciones DHCP..." -ForegroundColor Yellow
-Set-DhcpServerv4OptionValue -ScopeId $NetworkID -OptionId 3 -Value $Gateway
-Set-DhcpServerv4OptionValue -ScopeId $NetworkID -OptionId 6 -Value $Dns
+New-NetFirewallRule -name "Allow-Ping" -DisplayName "Permitir Ping" -Protocol ICMPv4 -Direction Inbound -Action Allow
 
 Write-Host "Configuración completada con éxito en Windows Server." -ForegroundColor Green
