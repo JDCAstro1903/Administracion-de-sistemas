@@ -14,4 +14,4 @@ Write-Output "Configurando firewall para permitir SSH..."
 New-NetFirewallRule -Name "OpenSSH" -DisplayName "OpenSSH Server (sshd)" -Enabled True -Direction Inbound -Protocol TCP -Action Allow -LocalPort 22
 
 Write-Output "Configuración de SSH en Windows completada. Puedes conectarte con:"
-Write-Output "  ssh usuario@IP_DEL_WINDOWS"
+Write-Output "  ssh daniel@192.168.1.160"
