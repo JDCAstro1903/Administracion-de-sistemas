@@ -39,8 +39,6 @@ max-lease-time 7200;
 
 subnet $network_base netmask $netmask {
   range $rango1 $rango2;
-  option routers $gateway;
-  options-domain-name-servers $dns;
 }
 EOF
 

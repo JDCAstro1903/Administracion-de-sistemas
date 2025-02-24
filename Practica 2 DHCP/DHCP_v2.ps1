@@ -13,6 +13,7 @@ function Validar-Subnet {
     return $subnetsValidas -contains $subnet
 }
 
+
 # Solicitar dirección IP
 do {
     $IpEstatica = Read-Host "Ingresa una dirección IP Estática (Ej 10.0.0.10)"
