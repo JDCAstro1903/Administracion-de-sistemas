@@ -1,0 +1,121 @@
+#!/bin/bash
+
+# Función para solicitar datos al usuario
+solicitar_datos() {
+    read -p "Ingrese la dirección IP estática: " ip_estatica
+    read -p "Ingrese la puerta de enlace: " gateway
+    read -p "Ingrese la máscara de red: " netmask
+    read -p "Ingrese el servidor DNS: " dns
+    read -p "Ingrese el rango inicial de las direcciones IP: " rango1
+    read -p "Ingrese el rango final de las direcciones IP: " rango2
+    network_base=$(echo $ip_estatica | awk -F. '{print $1"."$2"."$3".0"}')
+}
+
+# Función para instalar paquetes necesarios
+instalar_paquetes() {
+    sudo apt update && sudo apt install -y isc-dhcp-server bind9
+}
+
+# Función para configurar IP estática
+configurar_ip_estatica() {
+    cat <<EOF | sudo tee /etc/netplan/99-dhcp-server.yaml
+network:
+  version: 2
+  renderer: networkd
+  ethernets:
+    enp0s8:
+      addresses:
+        - $ip_estatica/24
+      gateway4: $gateway
+      nameservers:
+        addresses: [$dns]
+EOF
+    sudo chmod 600 /etc/netplan/99-dhcp-server.yaml
+    sudo netplan apply
+}
+
+# Función para configurar DHCP
+configurar_dhcp() {
+    sudo sed -i "s/^INTERFACESv4=.*/INTERFACESv4=\"enp0s8\"/" /etc/default/isc-dhcp-server
+    cat <<EOF | sudo tee /etc/dhcp/dhcpd.conf
+default-lease-time 600;
+max-lease-time 7200;
+
+subnet $network_base netmask $netmask {
+  range $rango1 $rango2;
+  option routers $gateway;
+  option domain-name-servers $dns;
+}
+EOF
+    sudo systemctl restart isc-dhcp-server
+    sudo systemctl enable isc-dhcp-server
+}
+
+# Función para configurar Bind9
+configurar_bind9() {
+    cat <<EOF | sudo tee /etc/bind/reprobados.com
+zone "reprobados.com" {
+    type master;
+    file "/etc/bind/db.reprobados.com";
+};
+EOF
+    cat <<EOF | sudo tee /etc/bind/db.reprobados.com
+\$TTL    604800
+@       IN      SOA     ns.reprobados.com. admin.reprobados.com. (
+                              2         ; Serial
+                         604800         ; Refresh
+                          86400         ; Retry
+                        2419200         ; Expire
+                         604800 )       ; Negative Cache TTL
+;
+@       IN      NS      ns.reprobados.com.
+ns      IN      A       $ip_estatica
+@       IN      A       $ip_estatica
+www     IN      A       $ip_estatica
+EOF
+    sudo chown root:bind /etc/bind/db.reprobados.com
+    sudo chmod 644 /etc/bind/db.reprobados.com
+    cat <<EOF | sudo tee /etc/bind/named.conf.options
+options {
+    directory "/var/cache/bind";
+    listen-on { $ip_estatica; };
+    allow-query { any; };
+    recursion no;
+    forwarders {};
+    dnssec-validation no;
+};
+EOF
+    sudo named-checkconf
+    sudo named-checkzone reprobados.com /etc/bind/db.reprobados.com
+    sudo systemctl restart bind9
+    sudo systemctl enable bind9
+}
+
+# Función para actualizar resolv.conf
+actualizar_resolv_conf() {
+    sudo bash -c "echo 'nameserver $ip_estatica' > /etc/resolv.conf"
+}
+
+# Menú principal
+while true; do
+    echo "\nMenú de Configuración:"
+    echo "1) Instalar paquetes necesarios"
+    echo "2) Solicitar datos"
+    echo "3) Configurar IP estática"
+    echo "4) Configurar DHCP"
+    echo "5) Configurar Bind9"
+    echo "6) Actualizar resolv.conf"
+    echo "7) Salir"
+    read -p "Seleccione una opción: " opcion
+
+    case $opcion in
+        1) instalar_paquetes ;;
+        2) solicitar_datos ;;
+        3) configurar_ip_estatica ;;
+        4) configurar_dhcp ;;
+        5) configurar_bind9 ;;
+        6) actualizar_resolv_conf ;;
+        7) echo "Saliendo..."; exit 0 ;;
+        *) echo "Opción no válida, intente de nuevo." ;;
+    esac
+done

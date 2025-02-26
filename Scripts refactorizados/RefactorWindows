@@ -1,0 +1,81 @@
+function Validar-IP {
+    param ($ip)
+    return $ip -match '^(25[0-5]|2[0-4][0-9]|1?[0-9][0-9]?)\.(25[0-5]|2[0-4][0-9]|1?[0-9][0-9]?)\.(25[0-5]|2[0-4][0-9]|1?[0-9][0-9]?)\.(25[0-5]|2[0-4][0-9]|1?[0-9][0-9]?)$'
+}
+
+function Validar-Subnet {
+    param ($subnet)
+    $subnetsValidas = @("255.0.0.0", "255.128.0.0", "255.192.0.0", "255.224.0.0", "255.240.0.0", "255.248.0.0", "255.252.0.0", "255.254.0.0", "255.255.0.0", "255.255.128.0", "255.255.192.0", "255.255.224.0", "255.255.240.0", "255.255.248.0", "255.255.252.0", "255.255.254.0", "255.255.255.0", "255.255.255.128", "255.255.255.192", "255.255.255.224", "255.255.255.240", "255.255.255.248", "255.255.255.252")
+    return $subnetsValidas -contains $subnet
+}
+
+function Configurar-DNS {
+    Write-Host "Instalando el servicio DNS..." -ForegroundColor Cyan
+    Install-WindowsFeature -Name DNS
+    
+    $interfaz = Read-Host "Ingrese el nombre de la interfaz de red"
+    $ip = Read-Host "Ingrese la dirección IP para el servidor DNS"
+    
+    New-NetIPAddress -InterfaceAlias $interfaz -IPAddress $ip -PrefixLength 24
+    
+    $dominio = Read-Host "Ingrese el nombre del dominio (ejemplo: reprobados.com)"
+    Add-DnsServerPrimaryZone -Name $dominio -ZoneFile "$dominio.dns" -DynamicUpdate None
+    
+    Write-Host "Agregando registros..." -Foreground Cyan
+    Add-DnsServerResourceRecordA -ZoneName $dominio -Name "@" -IPv4Address $ip
+    Add-DnsServerResourceRecordA -ZoneName $dominio -Name "www" -IPv4Address $ip
+    
+    Write-Host "Configurando firewall..." -Foreground Cyan
+    New-NetFirewallRule -DisplayName "Allow ICMPv4" -Protocol ICMPv4 -Direction Inbound -Action Allow
+    
+    Write-Host "Configurando DNS..." -Foreground Cyan
+    Set-DnsClientServerAddress -InterfaceAlias $interfaz -ServerAddress $ip
+    
+    Write-Host "Reiniciando servicio DNS..." -Foreground Cyan
+    Restart-Service -Name DNS
+}
+
+function Configurar-DHCP {
+    Write-Host "Instalando el servicio DHCP..." -ForegroundColor Cyan
+    Install-WindowsFeature -Name 'DHCP' -IncludeManagementTools
+    Restart-Service DHCPServer
+    
+    $interfaz = Read-Host "Ingrese el nombre de la interfaz de red"
+    $ip = Read-Host "Ingrese la dirección IP para el servidor DHCP"
+    $gateway = Read-Host "Ingrese la puerta de enlace predeterminada"
+    $subnet = Read-Host "Ingrese la máscara de subred"
+    $dns = Read-Host "Ingrese el servidor DNS"
+    $scopeStart = Read-Host "Ingrese el inicio del rango de direcciones"
+    $scopeEnd = Read-Host "Ingrese el final del rango de direcciones"
+    
+    New-NetIPAddress -IpAddress $ip -PrefixLength 24 -DefaultGateway $gateway -InterfaceAlias $interfaz
+    
+    Write-Host "Configurando DHCP..." -ForegroundColor Cyan
+    Add-DhcpServerV4Scope -Name "MiRed" -StartRange $scopeStart -EndRange $scopeEnd -SubnetMask $subnet -State Active
+    Start-Service DHCPServer
+    
+    Set-DhcpServerV4OptionValue -ScopeId $scopeStart -OptionId 3 -Value $gateway
+    Set-DhcpServerV4OptionValue -ScopeId $scopeStart -OptionId 6 -Value $dns
+    
+    New-NetFirewallRule -name "Allow-Ping" -DisplayName "Permitir Ping" -Protocol ICMPv4 -Direction Inbound -Action Allow
+}
+
+function Mostrar-Menu {
+    do {
+        Write-Host "\nSeleccione una opción:" -ForegroundColor Cyan
+        Write-Host "1. Configurar DNS"
+        Write-Host "2. Configurar DHCP"
+        Write-Host "3. Salir"
+        
+        $opcion = Read-Host "Ingrese su opción"
+        
+        switch ($opcion) {
+            "1" { Configurar-DNS }
+            "2" { Configurar-DHCP }
+            "3" { Write-Host "Saliendo..." -ForegroundColor Green; exit }
+            default { Write-Host "Opción no válida, intente de nuevo." -ForegroundColor Red }
+        }
+    } while ($true)
+}
+
+Mostrar-Menu

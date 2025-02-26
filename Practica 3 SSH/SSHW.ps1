@@ -4,7 +4,7 @@ if (-not (Get-WindowsFeature -Name OpenSSH-Server).Installed) {
     Add-WindowsFeature -Name OpenSSH-Server
 }
 #Cambiar la direccion IP
-New-NetIPAddress -InterfaceAlias "Ethernet" -IPAddress 192.168.1.151 -PrefixLength 24 -DefaultGateway 192.168.1.1
+New-NetIPAddress -InterfaceAlias "Ethernet 2" -IPAddress 192.168.1.160 -PrefixLength 24 -DefaultGateway 192.168.1.1
 
 # Iniciar y habilitar el servicio SSH
 Write-Output "Iniciando y habilitando el servicio SSH..."
