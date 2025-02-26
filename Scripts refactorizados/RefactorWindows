@@ -1,81 +1,183 @@
-function Validar-IP {
-    param ($ip)
-    return $ip -match '^(25[0-5]|2[0-4][0-9]|1?[0-9][0-9]?)\.(25[0-5]|2[0-4][0-9]|1?[0-9][0-9]?)\.(25[0-5]|2[0-4][0-9]|1?[0-9][0-9]?)\.(25[0-5]|2[0-4][0-9]|1?[0-9][0-9]?)$'
+# Definición de variables globales
+$script:Config = @{
+    InterfaceAlias = $null
+    IPAddress = $null
+    Gateway = $null
+    Subnet = $null
+    DNSServer = $null
+    Domain = "reprobados.com"
+    ScopeStart = $null
+    ScopeEnd = $null
 }
 
-function Validar-Subnet {
-    param ($subnet)
-    $subnetsValidas = @("255.0.0.0", "255.128.0.0", "255.192.0.0", "255.224.0.0", "255.240.0.0", "255.248.0.0", "255.252.0.0", "255.254.0.0", "255.255.0.0", "255.255.128.0", "255.255.192.0", "255.255.224.0", "255.255.240.0", "255.255.248.0", "255.255.252.0", "255.255.254.0", "255.255.255.0", "255.255.255.128", "255.255.255.192", "255.255.255.224", "255.255.255.240", "255.255.255.248", "255.255.255.252")
-    return $subnetsValidas -contains $subnet
+# Función para mostrar mensajes con colores
+function Write-LogMessage {
+    param(
+        [Parameter(Mandatory=$true)]
+        [string]$Message,
+        [ValidateSet('Info', 'Success', 'Error', 'Warning')]
+        [string]$Type = 'Info'
+    )
+    
+    $colors = @{
+        'Info' = 'Cyan'
+        'Success' = 'Green'
+        'Error' = 'Red'
+        'Warning' = 'Yellow'
+    }
+    
+    Write-Host "[$Type] $Message" -ForegroundColor $colors[$Type]
 }
 
-function Configurar-DNS {
-    Write-Host "Instalando el servicio DNS..." -ForegroundColor Cyan
-    Install-WindowsFeature -Name DNS
+# Función mejorada para validar IP
+function Test-IPAddress {
+    param (
+        [Parameter(Mandatory=$true)]
+        [string]$IPAddress
+    )
     
-    $interfaz = Read-Host "Ingrese el nombre de la interfaz de red"
-    $ip = Read-Host "Ingrese la dirección IP para el servidor DNS"
-    
-    New-NetIPAddress -InterfaceAlias $interfaz -IPAddress $ip -PrefixLength 24
-    
-    $dominio = Read-Host "Ingrese el nombre del dominio (ejemplo: reprobados.com)"
-    Add-DnsServerPrimaryZone -Name $dominio -ZoneFile "$dominio.dns" -DynamicUpdate None
-    
-    Write-Host "Agregando registros..." -Foreground Cyan
-    Add-DnsServerResourceRecordA -ZoneName $dominio -Name "@" -IPv4Address $ip
-    Add-DnsServerResourceRecordA -ZoneName $dominio -Name "www" -IPv4Address $ip
-    
-    Write-Host "Configurando firewall..." -Foreground Cyan
-    New-NetFirewallRule -DisplayName "Allow ICMPv4" -Protocol ICMPv4 -Direction Inbound -Action Allow
-    
-    Write-Host "Configurando DNS..." -Foreground Cyan
-    Set-DnsClientServerAddress -InterfaceAlias $interfaz -ServerAddress $ip
-    
-    Write-Host "Reiniciando servicio DNS..." -Foreground Cyan
-    Restart-Service -Name DNS
+    try {
+        $null = [IPAddress]$IPAddress
+        return $true
+    }
+    catch {
+        return $false
+    }
 }
 
-function Configurar-DHCP {
-    Write-Host "Instalando el servicio DHCP..." -ForegroundColor Cyan
-    Install-WindowsFeature -Name 'DHCP' -IncludeManagementTools
-    Restart-Service DHCPServer
+# Función para solicitar datos con validación
+function Get-ValidatedInput {
+    param(
+        [string]$Prompt,
+        [string]$ValidationType,
+        [switch]$Required
+    )
     
-    $interfaz = Read-Host "Ingrese el nombre de la interfaz de red"
-    $ip = Read-Host "Ingrese la dirección IP para el servidor DHCP"
-    $gateway = Read-Host "Ingrese la puerta de enlace predeterminada"
-    $subnet = Read-Host "Ingrese la máscara de subred"
-    $dns = Read-Host "Ingrese el servidor DNS"
-    $scopeStart = Read-Host "Ingrese el inicio del rango de direcciones"
-    $scopeEnd = Read-Host "Ingrese el final del rango de direcciones"
-    
-    New-NetIPAddress -IpAddress $ip -PrefixLength 24 -DefaultGateway $gateway -InterfaceAlias $interfaz
-    
-    Write-Host "Configurando DHCP..." -ForegroundColor Cyan
-    Add-DhcpServerV4Scope -Name "MiRed" -StartRange $scopeStart -EndRange $scopeEnd -SubnetMask $subnet -State Active
-    Start-Service DHCPServer
-    
-    Set-DhcpServerV4OptionValue -ScopeId $scopeStart -OptionId 3 -Value $gateway
-    Set-DhcpServerV4OptionValue -ScopeId $scopeStart -OptionId 6 -Value $dns
-    
-    New-NetFirewallRule -name "Allow-Ping" -DisplayName "Permitir Ping" -Protocol ICMPv4 -Direction Inbound -Action Allow
-}
-
-function Mostrar-Menu {
     do {
-        Write-Host "\nSeleccione una opción:" -ForegroundColor Cyan
-        Write-Host "1. Configurar DNS"
-        Write-Host "2. Configurar DHCP"
-        Write-Host "3. Salir"
+        $input = Read-Host $Prompt
+        if ([string]::IsNullOrWhiteSpace($input) -and $Required) {
+            Write-LogMessage "El valor no puede estar vacío" -Type Error
+            continue
+        }
         
-        $opcion = Read-Host "Ingrese su opción"
-        
-        switch ($opcion) {
-            "1" { Configurar-DNS }
-            "2" { Configurar-DHCP }
-            "3" { Write-Host "Saliendo..." -ForegroundColor Green; exit }
-            default { Write-Host "Opción no válida, intente de nuevo." -ForegroundColor Red }
+        switch ($ValidationType) {
+            "IP" {
+                if (Test-IPAddress $input) { return $input }
+                Write-LogMessage "IP inválida. Formato esperado: xxx.xxx.xxx.xxx" -Type Error
+            }
+            "Subnet" {
+                if (Validar-Subnet $input) { return $input }
+                Write-LogMessage "Máscara de subred inválida" -Type Error
+            }
+            default { return $input }
         }
     } while ($true)
 }
 
-Mostrar-Menu
+# Función mejorada para configurar DNS
+function Set-DNSConfiguration {
+    try {
+        Write-LogMessage "Iniciando configuración DNS..." -Type Info
+        
+        # Verificar si el servicio DNS está instalado
+        if (-not (Get-WindowsFeature -Name DNS).Installed) {
+            Install-WindowsFeature -Name DNS -IncludeManagementTools
+        }
+        
+        $Config.InterfaceAlias = Get-ValidatedInput "Nombre de la interfaz de red" -Required
+        $Config.IPAddress = Get-ValidatedInput "Dirección IP para el servidor DNS" -ValidationType IP -Required
+        
+        # Configurar IP
+        New-NetIPAddress -InterfaceAlias $Config.InterfaceAlias -IPAddress $Config.IPAddress -PrefixLength 24 -ErrorAction Stop
+        
+        # Configurar zona DNS
+        Add-DnsServerPrimaryZone -Name $Config.Domain -ZoneFile "$($Config.Domain).dns" -DynamicUpdate None
+        
+        # Agregar registros
+        Add-DnsServerResourceRecordA -ZoneName $Config.Domain -Name "@" -IPv4Address $Config.IPAddress
+        Add-DnsServerResourceRecordA -ZoneName $Config.Domain -Name "www" -IPv4Address $Config.IPAddress
+        
+        # Configurar firewall y DNS
+        New-NetFirewallRule -DisplayName "Allow DNS" -Direction Inbound -Protocol UDP -LocalPort 53 -Action Allow
+        Set-DnsClientServerAddress -InterfaceAlias $Config.InterfaceAlias -ServerAddresses $Config.IPAddress
+        
+        Restart-Service -Name DNS -Force
+        Write-LogMessage "Configuración DNS completada exitosamente" -Type Success
+    }
+    catch {
+        Write-LogMessage "Error en la configuración DNS: $_" -Type Error
+        return $false
+    }
+    return $true
+}
+
+# Función mejorada para configurar DHCP
+function Set-DHCPConfiguration {
+    try {
+        Write-LogMessage "Iniciando configuración DHCP..." -Type Info
+        
+        # Verificar si el servicio DHCP está instalado
+        if (-not (Get-WindowsFeature -Name 'DHCP').Installed) {
+            Install-WindowsFeature -Name 'DHCP' -IncludeManagementTools
+        }
+        
+        # Recopilar información
+        $Config.Gateway = Get-ValidatedInput "Puerta de enlace predeterminada" -ValidationType IP -Required
+        $Config.Subnet = Get-ValidatedInput "Máscara de subred" -ValidationType Subnet -Required
+        $Config.ScopeStart = Get-ValidatedInput "Inicio del rango de direcciones" -ValidationType IP -Required
+        $Config.ScopeEnd = Get-ValidatedInput "Final del rango de direcciones" -ValidationType IP -Required
+        
+        # Configurar DHCP
+        Add-DhcpServerV4Scope -Name "Red_Principal" `
+                             -StartRange $Config.ScopeStart `
+                             -EndRange $Config.ScopeEnd `
+                             -SubnetMask $Config.Subnet `
+                             -State Active
+        
+        Set-DhcpServerV4OptionValue -ScopeId $Config.ScopeStart `
+                                   -Router $Config.Gateway `
+                                   -DnsServer $Config.IPAddress
+        
+        Restart-Service DHCPServer -Force
+        Write-LogMessage "Configuración DHCP completada exitosamente" -Type Success
+    }
+    catch {
+        Write-LogMessage "Error en la configuración DHCP: $_" -Type Error
+        return $false
+    }
+    return $true
+}
+
+# Función principal mejorada
+function Show-MainMenu {
+    Write-LogMessage "Script de Configuración de Servicios de Red" -Type Info
+    
+    do {
+        Write-Host "`n====== MENÚ PRINCIPAL ======" -ForegroundColor Cyan
+        Write-Host "1. Configurar DNS"
+        Write-Host "2. Configurar DHCP"
+        Write-Host "3. Verificar Servicios"
+        Write-Host "4. Salir"
+        Write-Host "==========================" -ForegroundColor Cyan
+        
+        $opcion = Read-Host "`nSeleccione una opción"
+        
+        switch ($opcion) {
+            "1" { Set-DNSConfiguration }
+            "2" { Set-DHCPConfiguration }
+            "3" { 
+                Get-Service -Name DNS, DHCPServer | 
+                Format-Table Name, Status, DisplayName -AutoSize
+            }
+            "4" { 
+                Write-LogMessage "Saliendo del script..." -Type Success
+                return 
+            }
+            default { Write-LogMessage "Opción no válida" -Type Warning }
+        }
+    } while ($true)
+}
+
+
+# Iniciar el script
+Show-MainMenu

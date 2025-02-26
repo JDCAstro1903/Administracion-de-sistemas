@@ -1,50 +1,140 @@
-#!/bin/bash
+# Colores para mensajes
+readonly RED='\033[0;31m'
+readonly GREEN='\033[0;32m'
+readonly YELLOW='\033[1;33m'
+readonly NC='\033[0m' # No Color
 
-# Función para solicitar datos al usuario
+# Variables globales
+declare -A config
+INTERFACE="enp0s8"
+DOMAIN="reprobados.com"
+
+# Función para mostrar mensajes
+log_message() {
+    local type=$1
+    local message=$2
+    case $type in
+        "error") echo -e "${RED}[ERROR] ${message}${NC}" ;;
+        "success") echo -e "${GREEN}[SUCCESS] ${message}${NC}" ;;
+        "info") echo -e "${YELLOW}[INFO] ${message}${NC}" ;;
+    esac
+}
+
+# Función para validar IP
+validate_ip() {
+    local ip=$1
+    if [[ $ip =~ ^[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}$ ]]; then
+        for octet in $(echo $ip | tr '.' ' '); do
+            if [[ $octet -lt 0 || $octet -gt 255 ]]; then
+                return 1
+            fi
+        done
+        return 0
+    else
+        return 1
+    fi
+}
+
+# Función mejorada para solicitar datos
 solicitar_datos() {
-    read -p "Ingrese la dirección IP estática: " ip_estatica
-    read -p "Ingrese la puerta de enlace: " gateway
-    read -p "Ingrese la máscara de red: " netmask
-    read -p "Ingrese el servidor DNS: " dns
-    read -p "Ingrese el rango inicial de las direcciones IP: " rango1
-    read -p "Ingrese el rango final de las direcciones IP: " rango2
-    network_base=$(echo $ip_estatica | awk -F. '{print $1"."$2"."$3".0"}')
+    local valid_input=false
+    
+    while [ "$valid_input" = false ]; do
+        read -p "Ingrese la dirección IP estática: " config[ip_estatica]
+        if validate_ip "${config[ip_estatica]}"; then
+            valid_input=true
+        else
+            log_message "error" "IP inválida. Por favor, ingrese una IP válida."
+        fi
+    done
+
+    valid_input=false
+    while [ "$valid_input" = false ]; do
+        read -p "Ingrese la puerta de enlace: " config[gateway]
+        if validate_ip "${config[gateway]}"; then
+            valid_input=true
+        else
+            log_message "error" "Gateway inválido. Por favor, ingrese una IP válida."
+        fi
+    done
+
+    read -p "Ingrese la máscara de red (ejemplo: 255.255.255.0): " config[netmask]
+    read -p "Ingrese el servidor DNS: " config[dns]
+    read -p "Ingrese el rango inicial de las direcciones IP: " config[rango1]
+    read -p "Ingrese el rango final de las direcciones IP: " config[rango2]
+    
+    config[network_base]=$(echo ${config[ip_estatica]} | awk -F. '{print $1"."$2"."$3".0"}')
+    log_message "success" "Datos recopilados correctamente"
 }
 
-# Función para instalar paquetes necesarios
+# Función mejorada para instalar paquetes
 instalar_paquetes() {
-    sudo apt update && sudo apt install -y isc-dhcp-server bind9
+    log_message "info" "Iniciando instalación de paquetes..."
+    if ! sudo apt update && sudo apt install -y isc-dhcp-server bind9; then
+        log_message "error" "Error en la instalación de paquetes"
+        return 1
+    fi
+    log_message "success" "Paquetes instalados correctamente"
 }
 
-# Función para configurar IP estática
+# Función para verificar servicios
+check_services() {
+    local services=("isc-dhcp-server" "bind9")
+    for service in "${services[@]}"; do
+        if ! systemctl is-active --quiet $service; then
+            log_message "error" "El servicio $service no está activo"
+            return 1
+        fi
+    done
+    return 0
+}
+
+# Función para hacer backup de configuraciones
+backup_config() {
+    local file=$1
+    if [ -f "$file" ]; then
+        sudo cp "$file" "${file}.backup.$(date +%Y%m%d-%H%M%S)"
+        log_message "info" "Backup creado para $file"
+    fi
+}
+
+# Función mejorada para configurar IP estática
 configurar_ip_estatica() {
-    cat <<EOF | sudo tee /etc/netplan/99-dhcp-server.yaml
+    local config_file="/etc/netplan/99-dhcp-server.yaml"
+    backup_config "$config_file"
+
+    cat <<EOF | sudo tee $config_file
 network:
   version: 2
   renderer: networkd
   ethernets:
-    enp0s8:
+    ${INTERFACE}:
       addresses:
-        - $ip_estatica/24
-      gateway4: $gateway
+        - ${config[ip_estatica]}/24
+      gateway4: ${config[gateway]}
       nameservers:
-        addresses: [$dns]
+        addresses: [${config[dns]}]
 EOF
-    sudo chmod 600 /etc/netplan/99-dhcp-server.yaml
-    sudo netplan apply
+    sudo chmod 600 $config_file
+    
+    if ! sudo netplan apply; then
+        log_message "error" "Error al aplicar la configuración de red"
+        return 1
+    fi
+    log_message "success" "IP estática configurada correctamente"
 }
 
 # Función para configurar DHCP
 configurar_dhcp() {
-    sudo sed -i "s/^INTERFACESv4=.*/INTERFACESv4=\"enp0s8\"/" /etc/default/isc-dhcp-server
+    sudo sed -i "s/^INTERFACESv4=.*/INTERFACESv4=\"${INTERFACE}\"/" /etc/default/isc-dhcp-server
     cat <<EOF | sudo tee /etc/dhcp/dhcpd.conf
 default-lease-time 600;
 max-lease-time 7200;
 
-subnet $network_base netmask $netmask {
-  range $rango1 $rango2;
-  option routers $gateway;
-  option domain-name-servers $dns;
+subnet ${config[network_base]} netmask ${config[netmask]} {
+  range ${config[rango1]} ${config[rango2]};
+  option routers ${config[gateway]};
+  option domain-name-servers ${config[dns]};
 }
 EOF
     sudo systemctl restart isc-dhcp-server
@@ -53,32 +143,32 @@ EOF
 
 # Función para configurar Bind9
 configurar_bind9() {
-    cat <<EOF | sudo tee /etc/bind/reprobados.com
-zone "reprobados.com" {
+    cat <<EOF | sudo tee /etc/bind/${DOMAIN}
+zone "${DOMAIN}" {
     type master;
-    file "/etc/bind/db.reprobados.com";
+    file "/etc/bind/db.${DOMAIN}";
 };
 EOF
-    cat <<EOF | sudo tee /etc/bind/db.reprobados.com
+    cat <<EOF | sudo tee /etc/bind/db.${DOMAIN}
 \$TTL    604800
-@       IN      SOA     ns.reprobados.com. admin.reprobados.com. (
+@       IN      SOA     ns.${DOMAIN}. admin.${DOMAIN}. (
                               2         ; Serial
                          604800         ; Refresh
                           86400         ; Retry
                         2419200         ; Expire
                          604800 )       ; Negative Cache TTL
 ;
-@       IN      NS      ns.reprobados.com.
-ns      IN      A       $ip_estatica
-@       IN      A       $ip_estatica
-www     IN      A       $ip_estatica
+@       IN      NS      ns.${DOMAIN}.
+ns      IN      A       ${config[ip_estatica]}
+@       IN      A       ${config[ip_estatica]}
+www     IN      A       ${config[ip_estatica]}
 EOF
-    sudo chown root:bind /etc/bind/db.reprobados.com
-    sudo chmod 644 /etc/bind/db.reprobados.com
+    sudo chown root:bind /etc/bind/db.${DOMAIN}
+    sudo chmod 644 /etc/bind/db.${DOMAIN}
     cat <<EOF | sudo tee /etc/bind/named.conf.options
 options {
     directory "/var/cache/bind";
-    listen-on { $ip_estatica; };
+    listen-on { ${config[ip_estatica]}; };
     allow-query { any; };
     recursion no;
     forwarders {};
@@ -86,36 +176,45 @@ options {
 };
 EOF
     sudo named-checkconf
-    sudo named-checkzone reprobados.com /etc/bind/db.reprobados.com
+    sudo named-checkzone ${DOMAIN} /etc/bind/db.${DOMAIN}
     sudo systemctl restart bind9
     sudo systemctl enable bind9
 }
 
 # Función para actualizar resolv.conf
 actualizar_resolv_conf() {
-    sudo bash -c "echo 'nameserver $ip_estatica' > /etc/resolv.conf"
+    sudo bash -c "echo 'nameserver ${config[ip_estatica]}' > /etc/resolv.conf"
 }
 
-# Menú principal
-while true; do
-    echo "\nMenú de Configuración:"
-    echo "1) Instalar paquetes necesarios"
-    echo "2) Solicitar datos"
-    echo "3) Configurar IP estática"
-    echo "4) Configurar DHCP"
-    echo "5) Configurar Bind9"
-    echo "6) Actualizar resolv.conf"
-    echo "7) Salir"
-    read -p "Seleccione una opción: " opcion
+# Función principal
+main() {
+    while true; do
+        echo -e "\n${YELLOW}Menú de Configuración:${NC}"
+        echo "1) Instalar paquetes necesarios"
+        echo "2) Solicitar datos"
+        echo "3) Configurar IP estática"
+        echo "4) Configurar DHCP"
+        echo "5) Configurar Bind9"
+        echo "6) Actualizar resolv.conf"
+        echo "7) Verificar servicios"
+        echo "8) Salir"
+        
+        read -p "Seleccione una opción: " opcion
 
-    case $opcion in
-        1) instalar_paquetes ;;
-        2) solicitar_datos ;;
-        3) configurar_ip_estatica ;;
-        4) configurar_dhcp ;;
-        5) configurar_bind9 ;;
-        6) actualizar_resolv_conf ;;
-        7) echo "Saliendo..."; exit 0 ;;
-        *) echo "Opción no válida, intente de nuevo." ;;
-    esac
-done
+        case $opcion in
+            1) instalar_paquetes ;;
+            2) solicitar_datos ;;
+            3) configurar_ip_estatica ;;
+            4) configurar_dhcp ;;
+            5) configurar_bind9 ;;
+            6) actualizar_resolv_conf ;;
+            7) check_services ;;
+            8) log_message "info" "Saliendo..."; exit 0 ;;
+            *) log_message "error" "Opción no válida, intente de nuevo." ;;
+        esac
+    done
+}
+
+# Iniciar el script
+main
+
