@@ -106,9 +106,20 @@ if (!(Get-WebConfiguration -filter "/system.ftpServer")) {
 
 New-WebFtpSite -Name "FTP_Site" -PhysicalPath $FTP_Root -Port 21 -Force
 
-# Configurar SSL
+# Reemplazar la sección de configuración SSL con:
+
+# Configurar SSL para permitir conexiones no seguras
 Set-WebConfigurationProperty -filter "/system.ftpServer/security/ssl" -name "controlChannelPolicy" -value "SslAllow"
 Set-WebConfigurationProperty -filter "/system.ftpServer/security/ssl" -name "dataChannelPolicy" -value "SslAllow"
+Set-WebConfigurationProperty -filter "/system.ftpServer/security/ssl" -name "ssl128" -value "False"
+
+# Deshabilitar requerimiento de SSL
+Set-WebConfigurationProperty -filter "/system.applicationHost/sites/site[@name='FTP_Site']/ftpServer/security/ssl" -name "controlChannelPolicy" -value "SslAllow"
+Set-WebConfigurationProperty -filter "/system.applicationHost/sites/site[@name='FTP_Site']/ftpServer/security/ssl" -name "dataChannelPolicy" -value "SslAllow"
+Set-WebConfigurationProperty -filter "/system.applicationHost/sites/site[@name='FTP_Site']/ftpServer/security/ssl" -name "ssl128" -value "False"
+
+# Asegurarse de que la autenticación básica esté habilitada
+Set-WebConfigurationProperty -filter "/system.ftpServer/security/authentication/basicAuthentication" -name "enabled" -value "True"
 
 # Configurar autenticación
 Set-WebConfigurationProperty -filter "/system.ftpServer/security/authentication/anonymousAuthentication" -name "enabled" -value "True"
