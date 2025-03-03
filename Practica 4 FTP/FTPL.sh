@@ -51,8 +51,16 @@ while true; do
     while true; do
         read -p "¿Grupo? (1: Reprobados, 2: Recursadores): " GROUP_CHOICE
         case $GROUP_CHOICE in
-            1) GROUP="reprobados"; break ;;
-            2) GROUP="recursadores"; break ;;
+            1) 
+                GROUP="reprobados"
+                GROUP_FOLDER="$REPROBADOS_FOLDER"
+                break 
+                ;;
+            2) 
+                GROUP="recursadores"
+                GROUP_FOLDER="$RECURSADORES_FOLDER"
+                break 
+                ;;
             *) echo " Opción inválida, intente de nuevo." ;;
         esac
     done
@@ -70,7 +78,7 @@ while true; do
     # Acceso a la carpeta general y de grupo
     sudo usermod -aG $GROUP $USERNAME
     sudo ln -s $GENERAL_FOLDER $USER_FOLDER/general
-    sudo ln -s $(eval echo \$$GROUP"_FOLDER") $USER_FOLDER/grupo
+    sudo ln -s "$GROUP_FOLDER" $USER_FOLDER/grupo
 
     echo " Usuario $USERNAME agregado al grupo $GROUP con acceso a /general y /$GROUP"
 done
