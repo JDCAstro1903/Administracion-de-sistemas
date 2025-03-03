@@ -29,8 +29,8 @@ icacls $General_Folder /grant "ANONYMOUS LOGON:(RX)" /grant "Everyone:(RX)"
 icacls $Reprobados_Folder /grant "ANONYMOUS LOGON:(RX)" /grant "Everyone:(RX)"
 icacls $Recursadores_Folder /grant "ANONYMOUS LOGON:(RX)" /grant "Everyone:(RX)"
 # Permisos de grupo para las carpetas específicas
-icacls $Reprobados_Folder /grant "$Reprobados_Group:(M)"
-icacls $Recursadores_Folder /grant "$Recursadores_Group:(M)"
+icacls $Reprobados_Folder /grant "*${Reprobados_Group}:(M)"
+icacls $Recursadores_Folder /grant "*${Recursadores_Group}:(M)"
 
 # Preguntar cuántos usuarios agregar
 $Num_Users = Read-Host "¿Cuántos usuarios deseas agregar?"
