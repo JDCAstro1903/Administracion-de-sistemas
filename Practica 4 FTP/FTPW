@@ -35,7 +35,7 @@ icacls $Recursadores_Folder /grant "*${Recursadores_Group}:(M)"
 # Preguntar cuántos usuarios agregar
 $Num_Users = Read-Host "¿Cuántos usuarios deseas agregar?"
 
-for ($i = 1; $i -le $Num_Users; $i++) {
+1..([int]$Num_Users) | ForEach-Object {
     $UserName = Read-Host "Ingresa el nombre del usuario $i"
     $Password = Read-Host "Ingresa la contraseña para $UserName" -AsSecureString
     do {
@@ -43,23 +43,23 @@ for ($i = 1; $i -le $Num_Users; $i++) {
     } while ($UserGroup -ne "1" -and $UserGroup -ne "2")
 
     # Crear usuario local
-    New-LocalUser -Name $UserName -Password $Password -PasswordNeverExpires:$true -UserMayChangePassword:$false
+    New-LocalUser -Name $UserName -Password $Password -PasswordNeverExpires:$true
     
     # Crear carpeta personal del usuario
     $UserFolder = "$FTP_Root\Users\$UserName"
     New-Item -ItemType Directory -Path $UserFolder -Force
     
     # Asignar permisos al usuario
-    icacls $UserFolder /grant "${UserName}:(M)" # Permisos totales en su carpeta
-    icacls $General_Folder /grant "${UserName}:(M)" # Permisos de escritura en General
+    icacls $UserFolder /grant "*${UserName}:(M)" # Permisos totales en su carpeta
+    icacls $General_Folder /grant "*${UserName}:(M)" # Permisos de escritura en General
 
     # Asignar usuario al grupo correspondiente y dar permisos
     if ($UserGroup -eq "1") {
         Add-LocalGroupMember -Group $Reprobados_Group -Member $UserName
-        icacls $Reprobados_Folder /grant "${UserName}:(M)"
+        icacls $Reprobados_Folder /grant "*${UserName}:(M)"
     } elseif ($UserGroup -eq "2") {
         Add-LocalGroupMember -Group $Recursadores_Group -Member $UserName
-        icacls $Recursadores_Folder /grant "${UserName}:(M)"
+        icacls $Recursadores_Folder /grant "*${UserName}:(M)"
     } else {
         Write-Host "Grupo no válido. Usuario no asignado a grupo."
     }
@@ -88,12 +88,3 @@ Add-WebConfiguration "/system.ftpServer/security/authorization" -value @{
 # Reiniciar el servicio FTP
 Restart-Service ftpsvc
 Write-Host "Configuración del servidor FTP finalizada."
-
-Write-Host "Resumen de la configuración:"
-Write-Host "1. Acceso anónimo configurado para la carpeta General (solo lectura)"
-Write-Host "2. Usuarios creados con acceso a:"
-Write-Host "   - Su carpeta personal (escritura)"
-Write-Host "   - Carpeta General (escritura)"
-Write-Host "   - Carpeta de su grupo (escritura)"
-Write-Host "3. Autenticación básica y anónima habilitada"
-Write-Host "4. SSL configurado en modo permitido"
