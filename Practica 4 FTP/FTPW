@@ -1,9 +1,9 @@
-# Definir la ruta base del FTP
+# Definir la ruta base del FTP 
 $FTP_Root = "C:\FTP"
 $General_Folder = "$FTP_Root\General"
 $Reprobados_Folder = "$FTP_Root\Reprobados"
 $Recursadores_Folder = "$FTP_Root\Recursadores"
-$Users_Folder = "$FTP_Root\Users" # Mover la carpeta Users a una variable
+$Users_Folder = "$FTP_Root\Users"
 
 # Crear estructura de carpetas al mismo nivel
 New-Item -ItemType Directory -Path $FTP_Root -Force
@@ -23,12 +23,10 @@ New-LocalGroup -Name $Reprobados_Group -ErrorAction SilentlyContinue
 New-LocalGroup -Name $Recursadores_Group -ErrorAction SilentlyContinue
 
 # Configurar permisos iniciales
-# Acceso anónimo para lectura en carpeta general y visibilidad de las carpetas principales
 icacls $FTP_Root /grant "ANONYMOUS LOGON:(RX)" /grant "Everyone:(RX)"
 icacls $General_Folder /grant "ANONYMOUS LOGON:(RX)" /grant "Everyone:(RX)"
 icacls $Reprobados_Folder /grant "ANONYMOUS LOGON:(RX)" /grant "Everyone:(RX)"
 icacls $Recursadores_Folder /grant "ANONYMOUS LOGON:(RX)" /grant "Everyone:(RX)"
-# Permisos de grupo para las carpetas específicas
 icacls $Reprobados_Folder /grant "*${Reprobados_Group}:(M)"
 icacls $Recursadores_Folder /grant "*${Recursadores_Group}:(M)"
 
@@ -36,29 +34,50 @@ icacls $Recursadores_Folder /grant "*${Recursadores_Group}:(M)"
 $Num_Users = Read-Host "¿Cuántos usuarios deseas agregar?"
 
 1..([int]$Num_Users) | ForEach-Object {
-    $UserName = Read-Host "Ingresa el nombre del usuario $i"
-    $Password = Read-Host "Ingresa la contraseña para $UserName" -AsSecureString
+    $UserName = Read-Host "Ingresa el nombre del usuario $_"
+    $PlainPassword = Read-Host "Ingresa la contraseña para $UserName"
+    $SecurePassword = ConvertTo-SecureString $PlainPassword -AsPlainText -Force
+    
     do {
         $UserGroup = Read-Host "¿Grupo del usuario? (1: Reprobados, 2: Recursadores)"
     } while ($UserGroup -ne "1" -and $UserGroup -ne "2")
 
-    # Crear usuario local
-    New-LocalUser -Name $UserName -Password $Password -PasswordNeverExpires:$true
+    # Intentar crear el usuario con manejo de errores mejorado
+    try {
+        $userParams = @{
+            Name = $UserName
+            Password = $SecurePassword
+            PasswordNeverExpires = $true
+            Description = "Usuario FTP"
+            ErrorAction = "Stop"
+        }
+        
+        New-LocalUser @userParams
+        Write-Host "Usuario $UserName creado exitosamente" -ForegroundColor Green
+        
+        # Establecer que el usuario no puede cambiar la contraseña usando net user
+        net user $UserName /passwordchg:no
+        Start-Sleep -Seconds 1
+    }
+    catch {
+        Write-Host "Error al crear el usuario $UserName : $_" -ForegroundColor Red
+        continue
+    }
     
     # Crear carpeta personal del usuario
     $UserFolder = "$FTP_Root\Users\$UserName"
     New-Item -ItemType Directory -Path $UserFolder -Force
     
     # Asignar permisos al usuario
-    icacls $UserFolder /grant "*${UserName}:(M)" # Permisos totales en su carpeta
-    icacls $General_Folder /grant "*${UserName}:(M)" # Permisos de escritura en General
+    icacls $UserFolder /grant "*${UserName}:(M)"
+    icacls $General_Folder /grant "*${UserName}:(M)"
 
-    # Asignar usuario al grupo correspondiente y dar permisos
+    # Asignar usuario al grupo correspondiente
     if ($UserGroup -eq "1") {
-        Add-LocalGroupMember -Group $Reprobados_Group -Member $UserName
+        Add-LocalGroupMember -Group $Reprobados_Group -Member $UserName -ErrorAction SilentlyContinue
         icacls $Reprobados_Folder /grant "*${UserName}:(M)"
     } elseif ($UserGroup -eq "2") {
-        Add-LocalGroupMember -Group $Recursadores_Group -Member $UserName
+        Add-LocalGroupMember -Group $Recursadores_Group -Member $UserName -ErrorAction SilentlyContinue
         icacls $Recursadores_Folder /grant "*${UserName}:(M)"
     } else {
         Write-Host "Grupo no válido. Usuario no asignado a grupo."
@@ -67,6 +86,11 @@ $Num_Users = Read-Host "¿Cuántos usuarios deseas agregar?"
 
 # Configurar el servicio FTP
 Import-Module WebAdministration
+if (!(Get-WebConfiguration -filter "/system.ftpServer")) {
+    Write-Host "El servidor FTP no está configurado correctamente en IIS. Verifique la instalación."
+    exit
+}
+
 New-WebFtpSite -Name "FTP_Site" -PhysicalPath $FTP_Root -Port 21 -Force
 
 # Configurar SSL
@@ -77,12 +101,18 @@ Set-WebConfigurationProperty -filter "/system.ftpServer/security/ssl" -name "dat
 Set-WebConfigurationProperty -filter "/system.ftpServer/security/authentication/anonymousAuthentication" -name "enabled" -value "True"
 Set-WebConfigurationProperty -filter "/system.ftpServer/security/authentication/basicAuthentication" -name "enabled" -value "True"
 
-# Configurar reglas de autorización
-Add-WebConfiguration "/system.ftpServer/security/authorization" -value @{
-    accessType="Allow";
-    users="*";
-    permissions="Read";
-    roles="";
+# Verificar si la regla de autorización ya existe antes de agregarla
+$existingRule = Get-WebConfiguration "/system.ftpServer/security/authorization" | Where-Object { $_.users -eq "*" -and $_.permissions -eq "Read" }
+
+if (-not $existingRule) {
+    Add-WebConfiguration "/system.ftpServer/security/authorization" -value @{
+        accessType="Allow";
+        users="*";
+        permissions="Read";
+        roles="";
+    }
+} else {
+    Write-Host "La regla de autorización ya existe. No se añadirá una duplicada."
 }
 
 # Reiniciar el servicio FTP
