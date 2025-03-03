@@ -35,7 +35,20 @@ $Num_Users = Read-Host "¿Cuántos usuarios deseas agregar?"
 
 1..([int]$Num_Users) | ForEach-Object {
     $UserName = Read-Host "Ingresa el nombre del usuario $_"
-    $PlainPassword = Read-Host "Ingresa la contraseña para $UserName"
+    
+    do {
+        $PlainPassword = Read-Host "Ingresa la contraseña para $UserName (Mínimo 8 caracteres, debe incluir mayúsculas, minúsculas, números y símbolos)"
+        if ($PlainPassword.Length -lt 8 -or 
+            !($PlainPassword -match "[A-Z]") -or 
+            !($PlainPassword -match "[a-z]") -or 
+            !($PlainPassword -match "\d") -or 
+            !($PlainPassword -match "[^A-Za-z0-9]")) {
+            Write-Host "La contraseña no cumple con los requisitos mínimos de seguridad." -ForegroundColor Red
+            continue
+        }
+        break
+    } while ($true)
+
     $SecurePassword = ConvertTo-SecureString $PlainPassword -AsPlainText -Force
     
     do {
