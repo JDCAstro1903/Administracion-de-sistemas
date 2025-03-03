@@ -1,0 +1,99 @@
+# Definir la ruta base del FTP
+$FTP_Root = "C:\FTP"
+$General_Folder = "$FTP_Root\General"
+$Reprobados_Folder = "$FTP_Root\Reprobados"
+$Recursadores_Folder = "$FTP_Root\Recursadores"
+$Users_Folder = "$FTP_Root\Users" # Mover la carpeta Users a una variable
+
+# Crear estructura de carpetas al mismo nivel
+New-Item -ItemType Directory -Path $FTP_Root -Force
+New-Item -ItemType Directory -Path $General_Folder -Force
+New-Item -ItemType Directory -Path $Reprobados_Folder -Force
+New-Item -ItemType Directory -Path $Recursadores_Folder -Force
+New-Item -ItemType Directory -Path $Users_Folder -Force
+
+# Instalar el Servidor FTP si no está instalado
+Install-WindowsFeature Web-FTP-Server -IncludeManagementTools
+
+# Crear grupos de usuarios
+$Reprobados_Group = "FTP_Reprobados"
+$Recursadores_Group = "FTP_Recursadores"
+
+New-LocalGroup -Name $Reprobados_Group -ErrorAction SilentlyContinue
+New-LocalGroup -Name $Recursadores_Group -ErrorAction SilentlyContinue
+
+# Configurar permisos iniciales
+# Acceso anónimo para lectura en carpeta general y visibilidad de las carpetas principales
+icacls $FTP_Root /grant "ANONYMOUS LOGON:(RX)" /grant "Everyone:(RX)"
+icacls $General_Folder /grant "ANONYMOUS LOGON:(RX)" /grant "Everyone:(RX)"
+icacls $Reprobados_Folder /grant "ANONYMOUS LOGON:(RX)" /grant "Everyone:(RX)"
+icacls $Recursadores_Folder /grant "ANONYMOUS LOGON:(RX)" /grant "Everyone:(RX)"
+# Permisos de grupo para las carpetas específicas
+icacls $Reprobados_Folder /grant "$Reprobados_Group:(M)"
+icacls $Recursadores_Folder /grant "$Recursadores_Group:(M)"
+
+# Preguntar cuántos usuarios agregar
+$Num_Users = Read-Host "¿Cuántos usuarios deseas agregar?"
+
+for ($i = 1; $i -le $Num_Users; $i++) {
+    $UserName = Read-Host "Ingresa el nombre del usuario $i"
+    $Password = Read-Host "Ingresa la contraseña para $UserName" -AsSecureString
+    do {
+        $UserGroup = Read-Host "¿Grupo del usuario? (1: Reprobados, 2: Recursadores)"
+    } while ($UserGroup -ne "1" -and $UserGroup -ne "2")
+
+    # Crear usuario local
+    New-LocalUser -Name $UserName -Password $Password -PasswordNeverExpires:$true -UserMayChangePassword:$false
+    
+    # Crear carpeta personal del usuario
+    $UserFolder = "$FTP_Root\Users\$UserName"
+    New-Item -ItemType Directory -Path $UserFolder -Force
+    
+    # Asignar permisos al usuario
+    icacls $UserFolder /grant "${UserName}:(M)" # Permisos totales en su carpeta
+    icacls $General_Folder /grant "${UserName}:(M)" # Permisos de escritura en General
+
+    # Asignar usuario al grupo correspondiente y dar permisos
+    if ($UserGroup -eq "1") {
+        Add-LocalGroupMember -Group $Reprobados_Group -Member $UserName
+        icacls $Reprobados_Folder /grant "${UserName}:(M)"
+    } elseif ($UserGroup -eq "2") {
+        Add-LocalGroupMember -Group $Recursadores_Group -Member $UserName
+        icacls $Recursadores_Folder /grant "${UserName}:(M)"
+    } else {
+        Write-Host "Grupo no válido. Usuario no asignado a grupo."
+    }
+}
+
+# Configurar el servicio FTP
+Import-Module WebAdministration
+New-WebFtpSite -Name "FTP_Site" -PhysicalPath $FTP_Root -Port 21 -Force
+
+# Configurar SSL
+Set-WebConfigurationProperty -filter "/system.ftpServer/security/ssl" -name "controlChannelPolicy" -value "SslAllow"
+Set-WebConfigurationProperty -filter "/system.ftpServer/security/ssl" -name "dataChannelPolicy" -value "SslAllow"
+
+# Configurar autenticación
+Set-WebConfigurationProperty -filter "/system.ftpServer/security/authentication/anonymousAuthentication" -name "enabled" -value "True"
+Set-WebConfigurationProperty -filter "/system.ftpServer/security/authentication/basicAuthentication" -name "enabled" -value "True"
+
+# Configurar reglas de autorización
+Add-WebConfiguration "/system.ftpServer/security/authorization" -value @{
+    accessType="Allow";
+    users="*";
+    permissions="Read";
+    roles="";
+}
+
+# Reiniciar el servicio FTP
+Restart-Service ftpsvc
+Write-Host "Configuración del servidor FTP finalizada."
+
+Write-Host "Resumen de la configuración:"
+Write-Host "1. Acceso anónimo configurado para la carpeta General (solo lectura)"
+Write-Host "2. Usuarios creados con acceso a:"
+Write-Host "   - Su carpeta personal (escritura)"
+Write-Host "   - Carpeta General (escritura)"
+Write-Host "   - Carpeta de su grupo (escritura)"
+Write-Host "3. Autenticación básica y anónima habilitada"
+Write-Host "4. SSL configurado en modo permitido"
