@@ -42,19 +42,22 @@ echo "Creando grupos de usuarios..."
 sudo groupadd reprobados
 sudo groupadd recursadores
 
-#  Agregar usuarios
+# Agregar usuarios
 echo " Agregando usuarios..."
 while true; do
     read -p "Ingrese el nombre de usuario (o 'fin' para terminar): " USERNAME
     [[ "$USERNAME" == "fin" ]] && break
 
-    read -p "¿Grupo? (1: Reprobados, 2: Recursadores): " GROUP_CHOICE
-    case $GROUP_CHOICE in
-        1) GROUP="reprobados" ;;
-        2) GROUP="recursadores" ;;
-        *) echo " Opción inválida, intente de nuevo."; continue ;;
-    esac
+    while true; do
+        read -p "¿Grupo? (1: Reprobados, 2: Recursadores): " GROUP_CHOICE
+        case $GROUP_CHOICE in
+            1) GROUP="reprobados"; break ;;
+            2) GROUP="recursadores"; break ;;
+            *) echo " Opción inválida, intente de nuevo." ;;
+        esac
+    done
 
+    # Crear usuario
     sudo useradd -m -d /srv/ftp/$USERNAME -s /usr/sbin/nologin -G $GROUP $USERNAME
     sudo passwd $USERNAME
 
