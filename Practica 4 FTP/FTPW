@@ -106,6 +106,41 @@ if (!(Get-WebConfiguration -filter "/system.ftpServer")) {
 
 New-WebFtpSite -Name "FTP_Site" -PhysicalPath $FTP_Root -Port 21 -Force
 
+# Añadir después de New-WebFtpSite:
+
+# Configurar el firewall para permitir FTP
+New-NetFirewallRule -Name "FTP Server" -DisplayName "FTP Server" -Description "Allow FTP traffic" -Profile Any -Direction Inbound -Action Allow -Protocol TCP -LocalPort 21
+New-NetFirewallRule -Name "FTP Passive" -DisplayName "FTP Passive" -Description "Allow FTP passive traffic" -Profile Any -Direction Inbound -Action Allow -Protocol TCP -LocalPort 1024-65535
+
+# Configurar el modo pasivo para FTP
+$PasiveStartPort = 1024
+$PasiveEndPort = 65535
+
+# Configurar rango de puertos pasivos
+Set-WebConfigurationProperty -pspath 'MACHINE/WEBROOT/APPHOST' -filter "system.applicationHost/sites/site[@name='FTP_Site']/ftpServer/firewallSupport" -name "lowDataChannelPort" -value $PasiveStartPort
+Set-WebConfigurationProperty -pspath 'MACHINE/WEBROOT/APPHOST' -filter "system.applicationHost/sites/site[@name='FTP_Site']/ftpServer/firewallSupport" -name "highDataChannelPort" -value $PasiveEndPort
+
+# Configurar dirección externa (reemplaza con tu IP pública si es necesario)
+$ExternalIp = (Get-NetIPAddress -AddressFamily IPv4 -InterfaceAlias "Ethernet*" | Select-Object -First 1).IPAddress
+Set-WebConfigurationProperty -pspath 'MACHINE/WEBROOT/APPHOST' -filter "system.applicationHost/sites/site[@name='FTP_Site']/ftpServer/firewallSupport" -name "externalIp4Address" -value $ExternalIp
+
+# Habilitar modo pasivo
+Set-ItemProperty "IIS:\Sites\FTP_Site" -Name ftpServer.userIsolation.mode -Value "IsolateAllDirectories"
+
+# Asignar permisos de ejecución al IIS_USRS
+$acl = Get-Acl $FTP_Root
+$rule = New-Object System.Security.AccessControl.FileSystemAccessRule("IUSR","ReadAndExecute", "ContainerInherit,ObjectInherit", "None", "Allow")
+$acl.AddAccessRule($rule)
+Set-Acl $FTP_Root $acl
+
+# Reiniciar servicios
+Restart-Service ftpsvc -Force
+iisreset /restart
+
+Write-Host "Configuración del servidor FTP finalizada. Por favor, intenta conectarte usando modo pasivo." -ForegroundColor Green
+Write-Host "IP del servidor: $ExternalIp" -ForegroundColor Cyan
+Write-Host "Puerto: 21" -ForegroundColor Cyan
+
 # Reemplazar la sección de configuración SSL con:
 
 # Configurar SSL para permitir conexiones no seguras
