@@ -1,7 +1,3 @@
-Servidorftp (){
-#!/bin/bash
-
-# Archivo de configuración de vsftpd
 CONFIG_FILE="/etc/vsftpd.conf"
 
 # Definimos los nombres de los grupos de usuarios FTP
@@ -15,16 +11,13 @@ GROUP2_DIR="/srv/ftp_recursadores"
 SHARED_DIR="/srv/ftp_compartida"
 
 # Actualiza los repositorios e instala vsftpd si no está instalado
-echo "=== 1. ACTUALIZANDO E INSTALANDO VSFTPD ==="
 sudo apt update && sudo apt install -y vsftpd
 
 # Crear los grupos si no existen
-echo "=== 2. CREANDO GRUPOS ==="
 sudo groupadd $GROUP1 2>/dev/null || echo "Grupo $GROUP1 ya existe"
 sudo groupadd $GROUP2 2>/dev/null || echo "Grupo $GROUP2 ya existe"
 
 # Crear las carpetas donde los grupos guardarán sus archivos
-echo "=== 3. CREANDO CARPETAS GRUPALES ==="
 sudo mkdir -p $GROUP1_DIR $GROUP2_DIR $SHARED_DIR
 
 # Configurar permisos de las carpetas grupales
@@ -38,6 +31,11 @@ sudo chmod 770 $GROUP2_DIR        # Permite acceso total solo a los miembros del
 sudo chown :$GROUP1 $SHARED_DIR   # Propietario: Grupo "reprobados"
 sudo chgrp $GROUP2 $SHARED_DIR    # Grupo secundario: "recursadores"
 sudo chmod 775 $SHARED_DIR        # Permite lectura y escritura a ambos grupos
+
+# Abrir el puerto 21 y los puertos pasivos en el firewall
+sudo ufw allow 21/tcp
+sudo ufw allow 40000:40100/tcp  # Para conexiones pasivas
+sudo ufw reload
 
 # Preguntar cuántos usuarios deseas crear
 echo "¿Cuántos usuarios FTP deseas crear?"
@@ -53,7 +51,7 @@ done
 # Bucle para crear múltiples usuarios
 for ((i=1; i<=NUM_USERS; i++))
 do
-    echo "=== Creando usuario #$i ==="
+    echo "Creando usuario #$i "
     
     # Pedir nombre de usuario
     echo "Ingresa el nombre para el usuario FTP #$i:"
@@ -105,7 +103,6 @@ do
 done
 
 # Configurar vsftpd para acceso anónimo
-echo "=== 5. CONFIGURANDO VSFTPD PARA ACCESO ANONIMO ==="
 sudo cp $CONFIG_FILE ${CONFIG_FILE}.bak  # Crea un respaldo del archivo de configuración original
 
 # Escribe la configuración personalizada en el archivo de vsftpd para habilitar acceso anónimo
@@ -124,9 +121,7 @@ hide_ids=YES                  # Oculta los IDs de usuarios y grupos
 EOL
 
 # Reiniciar el servicio vsftpd para aplicar cambios
-echo "=== 6. REINICIANDO VSFTPD ==="
 sudo systemctl restart vsftpd
 sudo systemctl enable vsftpd  # Habilitar el servicio para que inicie con el sistema
 
-echo "=== SERVIDOR FTP CON ACCESO ANONIMO Y USUARIOS CONFIGURADO CORRECTAMENTE ==="
-}
+echo "Configuración finalizada. ¡Listo para usar!"
