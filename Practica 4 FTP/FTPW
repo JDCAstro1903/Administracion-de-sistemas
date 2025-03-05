@@ -1,179 +1,386 @@
-# Definir la ruta base del FTP 
+# Variables globales
+$group1 = "Reprobados"
+$group2 = "Recursadores"
 $FTP_Root = "C:\FTP"
-$General_Folder = "$FTP_Root\General"
-$Reprobados_Folder = "$FTP_Root\Reprobados"
-$Recursadores_Folder = "$FTP_Root\Recursadores"
-$Users_Folder = "$FTP_Root\Users"
+$group1Dir = "$FTP_Root\$group1"
+$group2Dir = "$FTP_Root\$group2"
+$sharedDir = "$FTP_Root\Compartida"
 
-# Crear estructura de carpetas al mismo nivel
-New-Item -ItemType Directory -Path $FTP_Root -Force
-New-Item -ItemType Directory -Path $General_Folder -Force
-New-Item -ItemType Directory -Path $Reprobados_Folder -Force
-New-Item -ItemType Directory -Path $Recursadores_Folder -Force
-New-Item -ItemType Directory -Path $Users_Folder -Force
+# Instalar el servidor FTP en IIS si no está instalado
+Write-Host "Instalando IIS y FTP Server..."
+Install-WindowsFeature -Name Web-Server, Web-FTP-Server -IncludeManagementTools
 
-# Instalar el Servidor FTP si no está instalado
-Install-WindowsFeature Web-FTP-Server -IncludeManagementTools
+# Crear grupos si no existen
+Write-Host "Creando grupos de usuarios FTP..."
+if (-not (Get-LocalGroup -Name $group1 -ErrorAction SilentlyContinue)) { New-LocalGroup -Name $group1 }
+if (-not (Get-LocalGroup -Name $group2 -ErrorAction SilentlyContinue)) { New-LocalGroup -Name $group2 }
 
-# Crear grupos de usuarios
-$Reprobados_Group = "FTP_Reprobados"
-$Recursadores_Group = "FTP_Recursadores"
+# Crear carpetas FTP si no existen
+Write-Host "Creando carpetas FTP..."
+New-Item -ItemType Directory -Path $group1Dir -Force
+New-Item -ItemType Directory -Path $group2Dir -Force
+New-Item -ItemType Directory -Path $sharedDir -Force
 
-New-LocalGroup -Name $Reprobados_Group -ErrorAction SilentlyContinue
-New-LocalGroup -Name $Recursadores_Group -ErrorAction SilentlyContinue
+# Asignar permisos a las carpetas
+Write-Host "Configurando permisos..."
+icacls $group1Dir /grant "$group1`:(OI)(CI)F"
+icacls $group2Dir /grant "$group2`:(OI)(CI)F"
+icacls $sharedDir /grant "$group1`:(OI)(CI)M" /grant "$group2`:(OI)(CI)M"
 
-# Configurar permisos iniciales
-icacls $FTP_Root /grant "ANONYMOUS LOGON:(RX)" /grant "Everyone:(RX)"
-icacls $General_Folder /grant "ANONYMOUS LOGON:(RX)" /grant "Everyone:(RX)"
-icacls $Reprobados_Folder /grant "ANONYMOUS LOGON:(RX)" /grant "Everyone:(RX)"
-icacls $Recursadores_Folder /grant "ANONYMOUS LOGON:(RX)" /grant "Everyone:(RX)"
-icacls $Reprobados_Folder /grant "*${Reprobados_Group}:(M)"
-icacls $Recursadores_Folder /grant "*${Recursadores_Group}:(M)"
+# Configurar reglas de firewall para FTP
+Write-Host "Configurando reglas de firewall..."
+New-NetFirewallRule -DisplayName "FTP Server" -Direction Inbound -Protocol TCP -LocalPort 21 -Action Allow
+New-NetFirewallRule -DisplayName "FTP Passive Ports" -Direction Inbound -Protocol TCP -LocalPort 40000-40100 -Action Allow
 
-# Preguntar cuántos usuarios agregar
-$Num_Users = Read-Host "¿Cuántos usuarios deseas agregar?"
+# Función para mostrar el menú principal
+function Show-MainMenu {
+    #Clear-Host
+    Write-Host "=== Administración de Servidor FTP ===" -ForegroundColor Cyan
+    Write-Host "1. Configurar Servidor FTP"
+    Write-Host "2. Administrar Usuarios"
+    Write-Host "3. Salir"
+    Write-Host "=================================" -ForegroundColor Cyan
+}
 
-1..([int]$Num_Users) | ForEach-Object {
-    $UserName = Read-Host "Ingresa el nombre del usuario $_"
-    
-    do {
-        $PlainPassword = Read-Host "Ingresa la contraseña para $UserName (Mínimo 8 caracteres, debe incluir mayúsculas, minúsculas, números y símbolos)"
-        if ($PlainPassword.Length -lt 8 -or 
-            !($PlainPassword -match "[A-Z]") -or 
-            !($PlainPassword -match "[a-z]") -or 
-            !($PlainPassword -match "\d") -or 
-            !($PlainPassword -match "[^A-Za-z0-9]")) {
-            Write-Host "La contraseña no cumple con los requisitos mínimos de seguridad." -ForegroundColor Red
-            continue
-        }
-        break
-    } while ($true)
+# Función para mostrar el menú de usuarios
+function Show-UserMenu {
+    #Clear-Host
+    Write-Host "=== Administración de Usuarios FTP ===" -ForegroundColor Cyan
+    Write-Host "1. Agregar nuevo usuario"
+    Write-Host "2. Cambiar grupo de usuario"
+    Write-Host "3. Ver usuarios existentes"
+    Write-Host "4. Volver al menú principal"
+    Write-Host "=================================" -ForegroundColor Cyan
+}
 
-    $SecurePassword = ConvertTo-SecureString $PlainPassword -AsPlainText -Force
-    
-    do {
-        $UserGroup = Read-Host "¿Grupo del usuario? (1: Reprobados, 2: Recursadores)"
-    } while ($UserGroup -ne "1" -and $UserGroup -ne "2")
-
-    # Intentar crear el usuario con manejo de errores mejorado
+# Función principal de inicialización
+function Initialize-FTPServer {
     try {
+        Write-Host "Iniciando configuración del servidor FTP..." -ForegroundColor Cyan
+        
+        # Instalar IIS y FTP
+        Write-Host "Instalando IIS y FTP Server..."
+        Install-WindowsFeature -Name Web-Server, Web-FTP-Server -IncludeManagementTools
+
+        # Crear grupos y carpetas
+        Write-Host "Creando estructura básica..."
+        # Crear grupos si no existen
+        Write-Host "Creando grupos de usuarios FTP..."
+        if (-not (Get-LocalGroup -Name $group1 -ErrorAction SilentlyContinue)) { New-LocalGroup -Name $group1 }
+        if (-not (Get-LocalGroup -Name $group2 -ErrorAction SilentlyContinue)) { New-LocalGroup -Name $group2 }
+
+        # Crear carpetas FTP si no existen
+        Write-Host "Creando carpetas FTP..."
+        New-Item -ItemType Directory -Path $group1Dir -Force
+        New-Item -ItemType Directory -Path $group2Dir -Force
+        New-Item -ItemType Directory -Path $sharedDir -Force
+
+        # Asignar permisos a las carpetas
+        Write-Host "Configurando permisos..."
+        icacls $group1Dir /grant "$group1`:(OI)(CI)F"
+        icacls $group2Dir /grant "$group2`:(OI)(CI)F"
+        icacls $sharedDir /grant "$group1`:(OI)(CI)M" /grant "$group2`:(OI)(CI)M"
+
+        # Configurar firewall
+        Write-Host "Configurando firewall..."
+        New-NetFirewallRule -DisplayName "FTP Server" -Direction Inbound -Protocol TCP -LocalPort 21 -Action Allow
+        New-NetFirewallRule -DisplayName "FTP Passive Ports" -Direction Inbound -Protocol TCP -LocalPort 40000-40100 -Action Allow
+
+        # Configurar IIS
+        Write-Host "Configurando IIS..."
+        New-WebFtpSite -Name "FTP_Site" -Port 21 -PhysicalPath "C:\FTP" -Force
+        Set-WebConfigurationProperty -filter "/system.applicationHost/sites/site[@name='FTP_Site']/ftpServer/security/authentication/anonymousAuthentication" -name "enabled" -value "false"
+        Set-WebConfigurationProperty -filter "/system.applicationHost/sites/site[@name='FTP_Site']/ftpServer/security/authentication/basicAuthentication" -name "enabled" -value "true"
+
+        # Habilitar acceso anónimo
+        Set-WebConfigurationProperty -filter "/system.applicationHost/sites/site[@name='FTP_Site']/ftpServer/security/authentication/anonymousAuthentication" -name "enabled" -value "true"
+
+        # Verificar si el certificado SSL ya existe
+        $certName = "ftp.tudominio.com"  # Reemplaza con tu dominio o IP
+        $cert = Get-ChildItem -Path Cert:\LocalMachine\My | Where-Object { $_.DnsNameList -match $certName }
+
+        if (-not $cert) {
+            Write-Host "Generando un nuevo certificado SSL para FTP..."
+            $cert = New-SelfSignedCertificate -DnsName $certName -CertStoreLocation "Cert:\LocalMachine\My"
+        }
+
+        # Asignar el certificado SSL al servidor FTP en IIS
+        Write-Host "Asignando certificado SSL al servidor FTP..."
+        $ftpSite = "FTP_Site"  # Nombre del sitio FTP en IIS
+
+        Import-Module WebAdministration
+        Set-ItemProperty "IIS:\Sites\$ftpSite" -Name ftpServer.security.ssl.serverCertHash -Value $cert.Thumbprint
+        Set-ItemProperty "IIS:\Sites\$ftpSite" -Name ftpServer.security.ssl.controlChannelPolicy -Value 2 # Requerir SSL en canal de control
+        Set-ItemProperty "IIS:\Sites\$ftpSite" -Name ftpServer.security.ssl.dataChannelPolicy -Value 2    # Requerir SSL en canal de datos
+
+        Write-Host "Certificado SSL asignado correctamente a $ftpSite."
+
+        # Configurar modo pasivo en el registro con privilegios elevados
+        Write-Host "Configurando modo pasivo..."
+        Start-Process powershell -ArgumentList "-Command Set-ItemProperty -Path 'HKLM:\SYSTEM\CurrentControlSet\Services\FTPSVC\Parameters' -Name 'PassivePortRange' -Value '40000-40100'" -Verb RunAs
+
+        # Modificar la configuración SSL después de crear el sitio FTP
+        Write-Host "Configurando SSL para el servidor FTP..."
+        Set-WebConfigurationProperty -filter "system.applicationHost/sites/site[@name='FTP_Site']/ftpServer/security/ssl" -name "controlChannelPolicy" -value "SslAllow"
+        Set-WebConfigurationProperty -filter "system.applicationHost/sites/site[@name='FTP_Site']/ftpServer/security/ssl" -name "dataChannelPolicy" -value "SslAllow"
+
+        # Configurar autenticación básica y permitir acceso sin SSL
+        Set-WebConfigurationProperty -filter "/system.ftpServer/security/authentication/basicAuthentication" -name "enabled" -value "True"
+        Add-WebConfiguration "/system.ftpServer/security/authorization" -value @{
+            accessType="Allow";
+            users="*";
+            permissions="Read,Write";
+        }
+
+        # Asegurar que IIS_IUSRS tenga permisos correctos
+        $acl = Get-Acl $FTP_Root
+        $rule = New-Object System.Security.AccessControl.FileSystemAccessRule("IUSR","ReadAndExecute", "ContainerInherit,ObjectInherit", "None", "Allow")
+        $acl.AddAccessRule($rule)
+        $rule = New-Object System.Security.AccessControl.FileSystemAccessRule("IIS_IUSRS","Modify", "ContainerInherit,ObjectInherit", "None", "Allow")
+        $acl.AddAccessRule($rule)
+        Set-Acl $FTP_Root $acl
+
+        # Reiniciar el servicio FTP
+        Restart-Service ftpsvc -Force
+        Write-Host "Configuracion SSL actualizada. Intente conectarse ahora."
+
+        # Reiniciar IIS para aplicar cambios
+        Restart-Service W3SVC
+        Write-Host "Configuracion completada. ¡Servidor FTP listo!"
+
+        Write-Host "`nConfiguración del servidor FTP completada exitosamente!" -ForegroundColor Green
+    }
+    catch {
+        Write-Host "Error durante la configuración: $_" -ForegroundColor Red
+    }
+    pause
+}
+
+# Función para agregar usuario
+function Add-FTPUser {
+    $ftpUser = Read-Host "Nombre del usuario FTP"
+    $ftpPass = Read-Host "Contraseña para $ftpUser" -AsSecureString
+    
+    Write-Host "`nGrupos disponibles:" -ForegroundColor Yellow
+    Write-Host "1. $group1"
+    Write-Host "2. $group2"
+    $groupChoice = Read-Host "Selecciona el grupo (1 o 2)"
+    
+    $ftpGroup = switch ($groupChoice) {
+        "1" { $group1 }
+        "2" { $group2 }
+        default { 
+            Write-Host "Opción inválida" -ForegroundColor Red
+            return
+        }
+    }
+
+    try {
+        # Crear usuario local
         $userParams = @{
-            Name = $UserName
-            Password = $SecurePassword
+            Name = $ftpUser
+            Password = $ftpPass
             PasswordNeverExpires = $true
+            UserMayNotChangePassword = $true
             Description = "Usuario FTP"
             ErrorAction = "Stop"
         }
-        
         New-LocalUser @userParams
-        Write-Host "Usuario $UserName creado exitosamente" -ForegroundColor Green
         
-        # Establecer que el usuario no puede cambiar la contraseña usando net user
-        net user $UserName /passwordchg:no
-        Start-Sleep -Seconds 1
+        # Agregar a grupos
+        Add-LocalGroupMember -Group $ftpGroup -Member $ftpUser
+        Add-LocalGroupMember -Group "FTP Users" -Member $ftpUser -ErrorAction SilentlyContinue
+        
+        # Crear directorio y configurar permisos
+        $personalDir = "C:\FTP\$ftpUser"
+        New-Item -ItemType Directory -Path $personalDir -Force
+        
+        # Asignar permisos completos al usuario en su carpeta
+        $acl = Get-Acl $personalDir
+        $rule = New-Object System.Security.AccessControl.FileSystemAccessRule($ftpUser, "FullControl", "ContainerInherit,ObjectInherit", "None", "Allow")
+        $acl.SetAccessRule($rule)
+        Set-Acl $personalDir $acl
+
+        # Crear enlaces simbólicos
+        New-Item -ItemType SymbolicLink -Path "$personalDir\$ftpGroup" -Target $(if ($ftpGroup -eq $group1) { $group1Dir } else { $group2Dir }) -Force
+        New-Item -ItemType SymbolicLink -Path "$personalDir\Compartida" -Target $sharedDir -Force
+
+        Write-Host "Usuario $ftpUser creado exitosamente" -ForegroundColor Green
     }
     catch {
-        Write-Host "Error al crear el usuario $UserName : $_" -ForegroundColor Red
-        continue
+        Write-Host "Error: $_" -ForegroundColor Red
     }
-    
-    # Crear carpeta personal del usuario
-    $UserFolder = "$FTP_Root\Users\$UserName"
-    New-Item -ItemType Directory -Path $UserFolder -Force
-    
-    # Asignar permisos al usuario
-    icacls $UserFolder /grant "*${UserName}:(M)"
-    icacls $General_Folder /grant "*${UserName}:(M)"
-
-    # Asignar usuario al grupo correspondiente
-    if ($UserGroup -eq "1") {
-        Add-LocalGroupMember -Group $Reprobados_Group -Member $UserName -ErrorAction SilentlyContinue
-        icacls $Reprobados_Folder /grant "*${UserName}:(M)"
-    } elseif ($UserGroup -eq "2") {
-        Add-LocalGroupMember -Group $Recursadores_Group -Member $UserName -ErrorAction SilentlyContinue
-        icacls $Recursadores_Folder /grant "*${UserName}:(M)"
-    } else {
-        Write-Host "Grupo no válido. Usuario no asignado a grupo."
-    }
+    pause
 }
 
-# Configurar el servicio FTP
-Import-Module WebAdministration
-if (!(Get-WebConfiguration -filter "/system.ftpServer")) {
-    Write-Host "El servidor FTP no está configurado correctamente en IIS. Verifique la instalación."
-    exit
+# Función para cambiar grupo
+function Set-UserGroup {
+    $ftpUser = Read-Host "Nombre del usuario a modificar"
+    if (-not (Get-LocalUser -Name $ftpUser -ErrorAction SilentlyContinue)) {
+        Write-Host "Usuario no encontrado" -ForegroundColor Red
+        pause
+        return
+    }
+
+    Write-Host "`nGrupos disponibles:" -ForegroundColor Yellow
+    Write-Host "1. $group1"
+    Write-Host "2. $group2"
+    $groupChoice = Read-Host "Selecciona el nuevo grupo (1 o 2)"
+    
+    $newGroup = switch ($groupChoice) {
+        "1" { $group1 }
+        "2" { $group2 }
+        default { 
+            Write-Host "Opción inválida" -ForegroundColor Red
+            return
+        }
+    }
+
+    try {
+        # Remover de grupos actuales
+        Remove-LocalGroupMember -Group $group1 -Member $ftpUser -ErrorAction SilentlyContinue
+        Remove-LocalGroupMember -Group $group2 -Member $ftpUser -ErrorAction SilentlyContinue
+        
+        # Agregar al nuevo grupo
+        Add-LocalGroupMember -Group $newGroup -Member $ftpUser
+        
+        Write-Host "Grupo cambiado exitosamente" -ForegroundColor Green
+    }
+    catch {
+        Write-Host "Error: $_" -ForegroundColor Red
+    }
+    pause
 }
 
-New-WebFtpSite -Name "FTP_Site" -PhysicalPath $FTP_Root -Port 21 -Force
+# Función para ver usuarios
+function Show-FTPUsers {
+    Write-Host "`nUsuarios del grupo $group1 :" -ForegroundColor Yellow
+    Get-LocalGroupMember -Group $group1 | Format-Table Name
+    
+    Write-Host "`nUsuarios del grupo $group2 :" -ForegroundColor Yellow
+    Get-LocalGroupMember -Group $group2 | Format-Table Name
+    
+    pause
+}
 
-# Añadir después de New-WebFtpSite:
+# Bucle principal del menú
+do {
+    Show-MainMenu
+    $mainChoice = Read-Host "`nSelecciona una opción"
+    
+    switch ($mainChoice) {
+        "1" { 
+            Initialize-FTPServer 
+        }
+        "2" { 
+            do {
+                Show-UserMenu
+                $userChoice = Read-Host "`nSelecciona una opción"
+                
+                switch ($userChoice) {
+                    "1" { Add-FTPUser }
+                    "2" { Set-UserGroup }  # Corregido de Change-UserGroup a Set-UserGroup
+                    "3" { Show-FTPUsers }
+                    "4" { break }
+                    default { 
+                        Write-Host "Opción inválida" -ForegroundColor Red 
+                        pause
+                    }
+                }
+            } while ($userChoice -ne "4")
+        }
+        "3" { 
+            Write-Host "Saliendo..." -ForegroundColor Yellow
+            return 
+        }
+        default { 
+            Write-Host "Opción inválida" -ForegroundColor Red 
+            pause
+        }
+    }
+} while ($true)
 
-# Configurar el firewall para permitir FTP
-New-NetFirewallRule -Name "FTP Server" -DisplayName "FTP Server" -Description "Allow FTP traffic" -Profile Any -Direction Inbound -Action Allow -Protocol TCP -LocalPort 21
-New-NetFirewallRule -Name "FTP Passive" -DisplayName "FTP Passive" -Description "Allow FTP passive traffic" -Profile Any -Direction Inbound -Action Allow -Protocol TCP -LocalPort 1024-65535
-
-# Configurar el modo pasivo para FTP
-$PasiveStartPort = 1024
-$PasiveEndPort = 65535
-
-# Configurar rango de puertos pasivos
-Set-WebConfigurationProperty -pspath 'MACHINE/WEBROOT/APPHOST' -filter "system.applicationHost/sites/site[@name='FTP_Site']/ftpServer/firewallSupport" -name "lowDataChannelPort" -value $PasiveStartPort
-Set-WebConfigurationProperty -pspath 'MACHINE/WEBROOT/APPHOST' -filter "system.applicationHost/sites/site[@name='FTP_Site']/ftpServer/firewallSupport" -name "highDataChannelPort" -value $PasiveEndPort
-
-# Configurar dirección externa (reemplaza con tu IP pública si es necesario)
-$ExternalIp = (Get-NetIPAddress -AddressFamily IPv4 -InterfaceAlias "Ethernet*" | Select-Object -First 1).IPAddress
-Set-WebConfigurationProperty -pspath 'MACHINE/WEBROOT/APPHOST' -filter "system.applicationHost/sites/site[@name='FTP_Site']/ftpServer/firewallSupport" -name "externalIp4Address" -value $ExternalIp
-
-# Habilitar modo pasivo
-Set-ItemProperty "IIS:\Sites\FTP_Site" -Name ftpServer.userIsolation.mode -Value "IsolateAllDirectories"
-
-# Asignar permisos de ejecución al IIS_USRS
+# Asegurar permisos generales
 $acl = Get-Acl $FTP_Root
-$rule = New-Object System.Security.AccessControl.FileSystemAccessRule("IUSR","ReadAndExecute", "ContainerInherit,ObjectInherit", "None", "Allow")
+$rules = @(
+    @{Identity="IUSR"; Rights="ReadAndExecute"},
+    @{Identity="IIS_IUSRS"; Rights="Modify"},
+    @{Identity="Administrators"; Rights="FullControl"},
+    @{Identity="SYSTEM"; Rights="FullControl"}
+)
+
+foreach ($r in $rules) {
+    $rule = New-Object System.Security.AccessControl.FileSystemAccessRule(
+        $r.Identity, $r.Rights, "ContainerInherit,ObjectInherit", "None", "Allow"
+    )
+    $acl.AddAccessRule($rule)
+}
+Set-Acl $FTP_Root $acl
+
+# Agregar permisos para acceso anónimo
+$acl = Get-Acl $FTP_Root
+$rule = New-Object System.Security.AccessControl.FileSystemAccessRule("ANONYMOUS LOGON", "Read", "ContainerInherit,ObjectInherit", "None", "Allow")
 $acl.AddAccessRule($rule)
 Set-Acl $FTP_Root $acl
 
-# Reiniciar servicios
-Restart-Service ftpsvc -Force
-iisreset /restart
+# Configurar sitio FTP en IIS
+Write-Host "Configurando servidor FTP en IIS..."
+New-WebFtpSite -Name "FTP_Site" -Port 21 -PhysicalPath "C:\FTP" -Force
+Set-WebConfigurationProperty -filter "/system.applicationHost/sites/site[@name='FTP_Site']/ftpServer/security/authentication/anonymousAuthentication" -name "enabled" -value "false"
+Set-WebConfigurationProperty -filter "/system.applicationHost/sites/site[@name='FTP_Site']/ftpServer/security/authentication/basicAuthentication" -name "enabled" -value "true"
 
-Write-Host "Configuración del servidor FTP finalizada. Por favor, intenta conectarte usando modo pasivo." -ForegroundColor Green
-Write-Host "IP del servidor: $ExternalIp" -ForegroundColor Cyan
-Write-Host "Puerto: 21" -ForegroundColor Cyan
+# Habilitar acceso anónimo
+Set-WebConfigurationProperty -filter "/system.applicationHost/sites/site[@name='FTP_Site']/ftpServer/security/authentication/anonymousAuthentication" -name "enabled" -value "true"
 
-# Reemplazar la sección de configuración SSL con:
+# Verificar si el certificado SSL ya existe
+$certName = "ftp.tudominio.com"  # Reemplaza con tu dominio o IP
+$cert = Get-ChildItem -Path Cert:\LocalMachine\My | Where-Object { $_.DnsNameList -match $certName }
 
-# Configurar SSL para permitir conexiones no seguras
-Set-WebConfigurationProperty -filter "/system.ftpServer/security/ssl" -name "controlChannelPolicy" -value "SslAllow"
-Set-WebConfigurationProperty -filter "/system.ftpServer/security/ssl" -name "dataChannelPolicy" -value "SslAllow"
-Set-WebConfigurationProperty -filter "/system.ftpServer/security/ssl" -name "ssl128" -value "False"
-
-# Deshabilitar requerimiento de SSL
-Set-WebConfigurationProperty -filter "/system.applicationHost/sites/site[@name='FTP_Site']/ftpServer/security/ssl" -name "controlChannelPolicy" -value "SslAllow"
-Set-WebConfigurationProperty -filter "/system.applicationHost/sites/site[@name='FTP_Site']/ftpServer/security/ssl" -name "dataChannelPolicy" -value "SslAllow"
-Set-WebConfigurationProperty -filter "/system.applicationHost/sites/site[@name='FTP_Site']/ftpServer/security/ssl" -name "ssl128" -value "False"
-
-# Asegurarse de que la autenticación básica esté habilitada
-Set-WebConfigurationProperty -filter "/system.ftpServer/security/authentication/basicAuthentication" -name "enabled" -value "True"
-
-# Configurar autenticación
-Set-WebConfigurationProperty -filter "/system.ftpServer/security/authentication/anonymousAuthentication" -name "enabled" -value "True"
-Set-WebConfigurationProperty -filter "/system.ftpServer/security/authentication/basicAuthentication" -name "enabled" -value "True"
-
-# Verificar si la regla de autorización ya existe antes de agregarla
-$existingRule = Get-WebConfiguration "/system.ftpServer/security/authorization" | Where-Object { $_.users -eq "*" -and $_.permissions -eq "Read" }
-
-if (-not $existingRule) {
-    Add-WebConfiguration "/system.ftpServer/security/authorization" -value @{
-        accessType="Allow";
-        users="*";
-        permissions="Read";
-        roles="";
-    }
-} else {
-    Write-Host "La regla de autorización ya existe. No se añadirá una duplicada."
+if (-not $cert) {
+    Write-Host "Generando un nuevo certificado SSL para FTP..."
+    $cert = New-SelfSignedCertificate -DnsName $certName -CertStoreLocation "Cert:\LocalMachine\My"
 }
 
+# Asignar el certificado SSL al servidor FTP en IIS
+Write-Host "Asignando certificado SSL al servidor FTP..."
+$ftpSite = "FTP_Site"  # Nombre del sitio FTP en IIS
+
+Import-Module WebAdministration
+Set-ItemProperty "IIS:\Sites\$ftpSite" -Name ftpServer.security.ssl.serverCertHash -Value $cert.Thumbprint
+Set-ItemProperty "IIS:\Sites\$ftpSite" -Name ftpServer.security.ssl.controlChannelPolicy -Value 2 # Requerir SSL en canal de control
+Set-ItemProperty "IIS:\Sites\$ftpSite" -Name ftpServer.security.ssl.dataChannelPolicy -Value 2    # Requerir SSL en canal de datos
+
+Write-Host "Certificado SSL asignado correctamente a $ftpSite."
+
+# Configurar modo pasivo en el registro con privilegios elevados
+Write-Host "Configurando modo pasivo..."
+Start-Process powershell -ArgumentList "-Command Set-ItemProperty -Path 'HKLM:\SYSTEM\CurrentControlSet\Services\FTPSVC\Parameters' -Name 'PassivePortRange' -Value '40000-40100'" -Verb RunAs
+
+# Modificar la configuración SSL después de crear el sitio FTP
+Write-Host "Configurando SSL para el servidor FTP..."
+Set-WebConfigurationProperty -filter "system.applicationHost/sites/site[@name='FTP_Site']/ftpServer/security/ssl" -name "controlChannelPolicy" -value "SslAllow"
+Set-WebConfigurationProperty -filter "system.applicationHost/sites/site[@name='FTP_Site']/ftpServer/security/ssl" -name "dataChannelPolicy" -value "SslAllow"
+
+# Configurar autenticación básica y permitir acceso sin SSL
+Set-WebConfigurationProperty -filter "/system.ftpServer/security/authentication/basicAuthentication" -name "enabled" -value "True"
+Add-WebConfiguration "/system.ftpServer/security/authorization" -value @{
+    accessType="Allow";
+    users="*";
+    permissions="Read,Write";
+}
+
+# Asegurar que IIS_IUSRS tenga permisos correctos
+$acl = Get-Acl $FTP_Root
+$rule = New-Object System.Security.AccessControl.FileSystemAccessRule("IUSR","ReadAndExecute", "ContainerInherit,ObjectInherit", "None", "Allow")
+$acl.AddAccessRule($rule)
+$rule = New-Object System.Security.AccessControl.FileSystemAccessRule("IIS_IUSRS","Modify", "ContainerInherit,ObjectInherit", "None", "Allow")
+$acl.AddAccessRule($rule)
+Set-Acl $FTP_Root $acl
+
 # Reiniciar el servicio FTP
-Restart-Service ftpsvc
-Write-Host "Configuración del servidor FTP finalizada."
+Restart-Service ftpsvc -Force
+Write-Host "Configuracion SSL actualizada. Intente conectarse ahora."
+
+# Reiniciar IIS para aplicar cambios
+Restart-Service W3SVC
+Write-Host "Configuracion completada. ¡Servidor FTP listo!"
